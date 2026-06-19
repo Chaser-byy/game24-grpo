@@ -8,14 +8,15 @@ version = "0.1.0"
 description = "GRPO training for Qwen2.5-1.5B-Instruct to solve the Game of 24 puzzle"
 requires-python = ">=3.10"
 readme = "README.md"
-dependencies = [
-    "pyyaml",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "ruff",
+]
+inference = [
+    "transformers>=4.37",
 ]
 
 [tool.setuptools.packages.find]

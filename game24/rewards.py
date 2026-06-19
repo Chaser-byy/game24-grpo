@@ -1,8 +1,9 @@
-"""Reward functions for GRPO training on the Game of 24 task.
+"""Simple verifiable reward used by the future GRPO trainer."""
 
-Future content:
-    - Correctness reward: 1.0 if the parsed solution is arithmetically valid
-      and evaluates to 24, 0.0 otherwise.
-    - Format reward: small bonus for adhering to the expected output structure.
-    - Composite reward combining correctness, format, and optional shaping terms.
-"""
+from game24.verifier import verify_expression
+
+
+def compute_reward(expression: str | None, numbers: tuple[int, int, int, int]) -> float:
+    """Return 1 for a correct answer and 0 otherwise."""
+
+    return float(expression is not None and verify_expression(expression, numbers))
