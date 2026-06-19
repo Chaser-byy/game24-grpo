@@ -29,6 +29,7 @@ scripts/
   prepare_train_data.py # 准备正式训练/验证数据
   evaluate_baseline.py # 批量基线评测
   train_grpo.py        # 单卡 LoRA GRPO 训练
+  plot_results.py      # 生成课程报告图表
 tests/
   test_pipeline.py
 ```
@@ -213,3 +214,28 @@ python scripts/evaluate_baseline.py \
 ```
 
 当前 GRPO 脚本只面向单张 NVIDIA GPU，尚未在本地运行训练或验证 T4 显存占用。
+
+## 生成实验图表
+
+安装轻量绘图依赖，然后读取训练日志和训练前后评测汇总：
+
+```bash
+pip install -e ".[analysis]"
+
+python scripts/plot_results.py \
+  --train-metrics outputs/grpo_smoke/train_metrics.jsonl \
+  --baseline-summary outputs/baseline_20.summary.json \
+  --grpo-summary outputs/grpo_smoke/eval_summary.json \
+  --output-dir outputs/grpo_smoke/figures
+```
+
+输出目录包含：
+
+```text
+training_rewards.png       # 总 reward 与三个分项 reward
+training_loss.png          # loss 曲线
+before_after_comparison.png # 正确率、提取率、数字合法率、平均 reward 对比
+comparison_metrics.csv     # 图中使用的具体数值
+```
+
+若 TRL 日志或汇总文件缺少某项指标，脚本会打印提示并跳过对应曲线。

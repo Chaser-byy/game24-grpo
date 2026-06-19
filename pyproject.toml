@@ -29,6 +29,10 @@ grpo = [
     "transformers==4.46.3",
     "trl==0.15.2",
 ]
+analysis = [
+    "matplotlib>=3.7,<4",
+    "numpy<2",
+]
 
 [tool.setuptools.packages.find]
 include = ["game24*"]
