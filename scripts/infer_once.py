@@ -3,12 +3,10 @@
 
 import argparse
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
+from game24.inference import generate_response, load_qwen
 from game24.parser import extract_answer
-from game24.prompts import build_prompt
 from game24.rewards import compute_reward
-from game24.verifier import verify_expression
+from game24.verifier import VerificationResult, check_expression
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,6 +25,11 @@ def parse_args() -> argparse.Namespace:
         help="Four integers between 1 and 13",
     )
     parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument(
+        "--sample",
+        action="store_true",
+        help="Enable sampling with temperature=0.7 and top_p=0.9",
+    )
     return parser.parse_args()
 
 
@@ -36,42 +39,29 @@ def main() -> None:
     if any(number < 1 or number > 13 for number in numbers):
         raise SystemExit("--numbers must contain four integers between 1 and 13")
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        torch_dtype="auto",
-    )
-    model.to("cuda")
-    model.eval()
-
-    messages = [{"role": "user", "content": build_prompt(numbers)}]
-    chat_text = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    model_inputs = tokenizer([chat_text], return_tensors="pt").to(model.device)
-    generated_ids = model.generate(
-        **model_inputs,
+    tokenizer, model = load_qwen(args.model)
+    response = generate_response(
+        tokenizer,
+        model,
+        numbers,
         max_new_tokens=args.max_new_tokens,
-        do_sample=False,
+        sample=args.sample,
     )
-
-    # model.generate returns prompt tokens followed by newly generated tokens.
-    new_token_ids = [
-        output_ids[len(input_ids) :]
-        for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids, strict=True)
-    ]
-    response = tokenizer.batch_decode(new_token_ids, skip_special_tokens=True)[0]
 
     expression = extract_answer(response)
-    valid = expression is not None and verify_expression(expression, numbers)
+    if expression is None:
+        result = VerificationResult(False, [], None, "missing or empty <answer> tag")
+    else:
+        result = check_expression(expression, numbers)
     reward = compute_reward(expression, numbers)
 
     print("Numbers:", numbers)
     print("Model response:\n", response)
     print("Expression:", expression)
-    print("Valid:", valid)
+    print("Used numbers:", result.used_numbers)
+    print("Value:", result.value)
+    print("Valid:", result.valid)
+    print("Reason:", result.reason)
     print("Reward:", reward)
 
 

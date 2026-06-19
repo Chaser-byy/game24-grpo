@@ -16,7 +16,10 @@ dev = [
     "ruff",
 ]
 inference = [
-    "transformers>=4.37",
+    "transformers==4.39.3",
+]
+data = [
+    "datasets>=2.18",
 ]
 
 [tool.setuptools.packages.find]

@@ -14,6 +14,8 @@ class Game24Example:
     solvable: bool | None = None
     reference_answer: str | None = None
     source: str | None = None
+    rank: int | None = None
+    solved_rate: float | None = None
 
     def __post_init__(self) -> None:
         if len(self.numbers) != 4 or any(number < 1 or number > 13 for number in self.numbers):

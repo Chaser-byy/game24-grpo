@@ -6,7 +6,7 @@ from game24.data import Game24Example, load_jsonl, save_jsonl
 from game24.parser import extract_answer
 from game24.prompts import build_prompt
 from game24.rewards import compute_reward
-from game24.verifier import verify_expression
+from game24.verifier import check_expression, verify_expression
 
 
 def test_jsonl_round_trip(tmp_path: Path) -> None:
@@ -27,6 +27,11 @@ def test_wrong_expressions_fail() -> None:
     assert not verify_expression("6 * 4", (1, 3, 4, 6))
     assert not verify_expression("__import__('os').getcwd()", (1, 3, 4, 6))
     assert not verify_expression("1 / (3 - 3)", (1, 3, 3, 4))
+
+    result = check_expression("6 * 4", (1, 3, 4, 6))
+    assert result.used_numbers == [6, 4]
+    assert result.value == 24
+    assert "expected numbers" in result.reason
 
 
 def test_minimal_pipeline_reward() -> None:
