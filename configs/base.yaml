@@ -1,0 +1,12 @@
+project:
+  name: game24-grpo
+  seed: 42
+
+runtime:
+  accelerator: cuda
+  mixed_precision: bf16
+
+paths:
+  raw_data_dir: data/raw
+  processed_data_dir: data/processed
+  output_dir: outputs

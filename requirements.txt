@@ -1,0 +1,6 @@
+# Base dependencies for game24-grpo
+# Install with: pip install -e ".[dev]"
+#
+# Training dependencies (torch, transformers, datasets, trl, peft, accelerate,
+# bitsandbytes, flash-attn) will be added separately based on the target
+# NVIDIA CUDA environment (Huawei Cloud GPU instances or lab GPUs).
