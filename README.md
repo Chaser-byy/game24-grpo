@@ -173,14 +173,34 @@ pip install -e ".[grpo]"
 python scripts/train_grpo.py \
   --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
   --data data/processed/train.jsonl \
+  --eval-data data/processed/validation.jsonl \
   --output outputs/grpo_smoke \
   --limit 20 \
-  --max-steps 20
+  --max-steps 20 \
+  --run-eval
 ```
 
 训练日志分别显示答案提取、数字使用和最终正确性奖励。LoRA adapter 保存在
 `outputs/grpo_smoke/`，训练 checkpoint 也保存在该目录下。可调整
-`--learning-rate`、`--num-generations`、`--max-completion-length` 和 `--seed`。
+`--learning-rate`、`--num-generations`、`--max-completion-length`、`--eval-limit` 和
+`--seed`。不需要训练后评测时，省略 `--eval-data` 和 `--run-eval`。
+
+一次完整实验的主要输出为：
+
+```text
+outputs/grpo_smoke/
+  adapter_config.json     # LoRA 配置
+  adapter_model.safetensors # LoRA 权重
+  tokenizer files         # Qwen tokenizer
+  training_args.json      # 命令参数、GRPO/LoRA 参数和完成时间
+  train_metrics.jsonl     # 每步 loss、总 reward 和各分项 reward
+  eval_results.jsonl      # 逐题评测明细（启用 --run-eval 时）
+  eval_summary.json       # 正确率等汇总指标（启用 --run-eval 时）
+  checkpoint-*/           # TRL checkpoint
+```
+
+`train_metrics.jsonl` 直接保存 TRL 的 `log_history`，不替换终端中的 TRL 日志。
+`eval_summary.json` 包含样本数、正确数、正确率、答案提取率、数字合法率和平均奖励。
 
 现有评测脚本可以直接读取 adapter 目录，并从 `adapter_config.json` 找到原始模型：
 

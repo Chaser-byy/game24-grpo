@@ -2,9 +2,14 @@
 """Run a small single-GPU GRPO training job with LoRA."""
 
 import argparse
+import gc
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from game24.data import load_jsonl
+from game24.evaluation import evaluate_model
 from game24.parser import extract_answer
 from game24.prompts import build_prompt
 from game24.rewards import compute_reward
@@ -16,6 +21,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True, help="Local Qwen model directory")
     parser.add_argument("--data", required=True, help="Local training JSONL file")
     parser.add_argument("--output", required=True, help="Directory for LoRA weights")
+    parser.add_argument("--eval-data", help="Optional validation or test JSONL file")
+    parser.add_argument("--run-eval", action="store_true", help="Evaluate after training")
+    parser.add_argument("--eval-limit", type=int, default=20, help="Eval examples; 0 uses all")
     parser.add_argument("--limit", type=int, default=20, help="Training examples; 0 uses all")
     parser.add_argument("--max-steps", type=int, default=20)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
@@ -79,6 +87,8 @@ def correctness_reward(
 
 def main() -> None:
     args = parse_args()
+    if args.run_eval and not args.eval_data:
+        raise SystemExit("--run-eval requires --eval-data")
 
     import torch
     from datasets import Dataset
@@ -145,10 +155,60 @@ def main() -> None:
         peft_config=peft_config,
     )
 
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    started_at = datetime.now(timezone.utc).isoformat()
+    run_info = {
+        "command_args": vars(args),
+        "grpo_config": training_args.to_dict(),
+        "train_examples": len(examples),
+        "lora": {"r": 8, "alpha": 16, "dropout": 0.05, "targets": ["q_proj", "v_proj"]},
+        "started_at": started_at,
+        "completed_at": None,
+        "final_step": 0,
+    }
+    _write_json(output_dir / "training_args.json", run_info)
+
     print(f"Training on {len(examples)} puzzles; saving to {args.output}")
-    trainer.train()
+    train_result = trainer.train()
     trainer.save_model(args.output)
     tokenizer.save_pretrained(args.output)
+
+    completed_at = datetime.now(timezone.utc).isoformat()
+    final_record = {
+        "event": "train_complete",
+        "step": trainer.state.global_step,
+        "completed_at": completed_at,
+        **train_result.metrics,
+    }
+    with (output_dir / "train_metrics.jsonl").open("w", encoding="utf-8") as file:
+        for record in [*trainer.state.log_history, final_record]:
+            file.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+    run_info["completed_at"] = completed_at
+    run_info["final_step"] = trainer.state.global_step
+    run_info["train_result"] = train_result.metrics
+    _write_json(output_dir / "training_args.json", run_info)
+
+    if args.run_eval:
+        del trainer
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+        evaluate_model(
+            args.output,
+            args.eval_data,
+            output_dir / "eval_results.jsonl",
+            summary_path=output_dir / "eval_summary.json",
+            limit=args.eval_limit,
+            max_new_tokens=args.max_completion_length,
+            seed=args.seed,
+        )
+
+
+def _write_json(path: Path, content: dict[str, Any]) -> None:
+    text = json.dumps(content, ensure_ascii=False, indent=2, default=str) + "\n"
+    path.write_text(text, encoding="utf-8")
 
 
 if __name__ == "__main__":
