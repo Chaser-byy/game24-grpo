@@ -26,6 +26,7 @@ scripts/
   smoke_test.py # 不需要模型的端到端示例
   infer_once.py # Qwen 单题推理
   prepare_data.py      # 下载或转换数据集
+  prepare_train_data.py # 准备正式训练/验证数据
   evaluate_baseline.py # 批量基线评测
   train_grpo.py        # 单卡 LoRA GRPO 训练
 tests/
@@ -73,7 +74,7 @@ python scripts/infer_once.py \
 
 ## 准备数据
 
-数据脚本优先支持本地 CSV，同时保留 Hugging Face 在线加载。它会统一字段并按排序后的
+数据脚本优先支持本地 CSV/JSON/JSONL，同时保留 Hugging Face 在线加载。它会统一字段并按排序后的
 四个数字去重，同一数字组合保留第一次出现的记录。官方 CSV 的 `Rank` 和
 `Solved rate` 会一并保存，便于后续分析困难题。
 
@@ -99,6 +100,32 @@ python scripts/prepare_data.py \
 
 本地 CSV 路径不会导入或访问 Hugging Face。可用 `--split` 选择在线数据集 split，
 用 `--limit` 只转换前几条记录。
+
+## 准备正式训练数据
+
+将本地下载好的 `nlile/24-game` CSV、JSON 或 JSONL 划分为训练集、验证集和无解测试集：
+
+```bash
+python scripts/prepare_train_data.py \
+  --input-file /home/ma-user/work/data/nlile_24_game.csv \
+  --output-dir data/processed \
+  --val-ratio 0.1 \
+  --seed 42
+```
+
+如果已有外部测试集，增加 `--test-file` 排除重复数字组合：
+
+```bash
+python scripts/prepare_train_data.py \
+  --input-file /home/ma-user/work/data/nlile_24_game.csv \
+  --output-dir data/processed \
+  --val-ratio 0.1 \
+  --seed 42 \
+  --test-file data/processed/test.jsonl
+```
+
+输出文件为 `train.jsonl`、`validation.jsonl` 和 `unsolvable_test.jsonl`。相同数字的不同
+排列只保留第一次出现的记录；固定 seed 会得到相同的训练/验证划分。
 
 ## 基线评测
 
