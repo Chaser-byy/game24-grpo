@@ -1,5 +1,7 @@
 """Shared Qwen loading and generation code."""
 
+import json
+from pathlib import Path
 from typing import Any
 
 from game24.prompts import build_prompt
@@ -10,8 +12,19 @@ def load_qwen(model_name: str) -> tuple[Any, Any]:
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto")
+    model_path = Path(model_name)
+    adapter_config_path = model_path / "adapter_config.json"
+    if adapter_config_path.exists():
+        from peft import PeftModel
+
+        adapter_config = json.loads(adapter_config_path.read_text(encoding="utf-8"))
+        base_model = adapter_config["base_model_name_or_path"]
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(base_model, torch_dtype="auto")
+        model = PeftModel.from_pretrained(model, model_name)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto")
     model.to("cuda")
     model.eval()
     return tokenizer, model

@@ -3,7 +3,7 @@
 这是一个课程大作业项目，目标是让 Qwen2.5-1.5B-Instruct 学会根据四个数字生成等于
 24 的算式，并使用可自动验证的奖励进行 GRPO 训练。
 
-当前代码已包含最小闭环和 Qwen 单题推理入口，不包含 GRPO 训练：
+当前代码包含数据准备、Qwen 推理、基线评测和最小 LoRA GRPO 训练闭环：
 
 ```text
 输入四个数字 -> 构造 Prompt -> Qwen 生成回答 -> 提取 <answer>
@@ -27,6 +27,7 @@ scripts/
   infer_once.py # Qwen 单题推理
   prepare_data.py      # 下载或转换数据集
   evaluate_baseline.py # 批量基线评测
+  train_grpo.py        # 单卡 LoRA GRPO 训练
 tests/
   test_pipeline.py
 ```
@@ -50,7 +51,7 @@ Smoke test 使用固定字符串模拟模型输出，因此不需要 GPU。
 
 在华为云 ModelArts 或实验室的 NVIDIA GPU 环境中，先使用镜像预装的 CUDA 和
 PyTorch，再安装项目的轻量推理依赖。项目不会指定或重新安装某个 PyTorch/CUDA 版本。
-项目固定使用 Transformers 4.39.3，以兼容 ModelArts 的 PyTorch 2.1 镜像。
+项目固定使用 Transformers 4.46.3；安装项目依赖时不会主动安装或替换 PyTorch。
 
 ```bash
 pip install -e ".[inference]"
@@ -131,11 +132,37 @@ python scripts/evaluate_baseline.py \
 `baseline_20.summary.json` 或 `baseline_full.summary.json`。评测支持
 `--max-new-tokens`、`--sample` 和 `--seed`。
 
-## 后续接入 GRPO
+## GRPO Smoke Training
 
-安装与 GPU 环境兼容的 `datasets` 和 `trl`，然后把 `build_prompt` 与
-`compute_reward` 接入 `trl.GRPOTrainer`。训练依赖暂不写入项目，避免提前引入
-CUDA 和 PyTorch 版本冲突。
+训练环境使用已有的 PyTorch 2.1.0 + CUDA 11.8，再安装固定版本的训练依赖：
 
-当前尚未实现真实数据集下载、GRPO 训练和测试集准确率评测。单题推理代码尚未在
-NVIDIA GPU 和实际 Qwen 权重上运行验证。
+```bash
+pip install -e ".[grpo]"
+```
+
+下面的命令用 20 条可解题目训练 20 步，默认每个 Prompt 生成 4 个回答：
+
+```bash
+python scripts/train_grpo.py \
+  --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
+  --data data/processed/train.jsonl \
+  --output outputs/grpo_smoke \
+  --limit 20 \
+  --max-steps 20
+```
+
+训练日志分别显示答案提取、数字使用和最终正确性奖励。LoRA adapter 保存在
+`outputs/grpo_smoke/`，训练 checkpoint 也保存在该目录下。可调整
+`--learning-rate`、`--num-generations`、`--max-completion-length` 和 `--seed`。
+
+现有评测脚本可以直接读取 adapter 目录，并从 `adapter_config.json` 找到原始模型：
+
+```bash
+python scripts/evaluate_baseline.py \
+  --model outputs/grpo_smoke \
+  --data data/processed/test.jsonl \
+  --limit 20 \
+  --output outputs/grpo_smoke_eval.jsonl
+```
+
+当前 GRPO 脚本只面向单张 NVIDIA GPU，尚未在本地运行训练或验证 T4 显存占用。

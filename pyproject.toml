@@ -16,10 +16,18 @@ dev = [
     "ruff",
 ]
 inference = [
-    "transformers==4.39.3",
+    "transformers==4.46.3",
 ]
 data = [
-    "datasets>=2.18",
+    "datasets==3.2.0",
+]
+grpo = [
+    "accelerate==1.2.1",
+    "datasets==3.2.0",
+    "numpy<2",
+    "peft==0.14.0",
+    "transformers==4.46.3",
+    "trl==0.15.2",
 ]
 
 [tool.setuptools.packages.find]
