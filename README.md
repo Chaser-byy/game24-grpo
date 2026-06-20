@@ -168,8 +168,9 @@ python scripts/train_grpo.py \
 ```
 
 训练启动时会打印 Python、PyTorch、CUDA、Transformers、TRL、PEFT、GPU 和显存信息。
-为避免 T4 上的 FP16 logits/KL 溢出，冻结的基础权重保持 FP32，LoRA 训练仍使用 FP16
-混合精度；采样前还会清理并重新归一化偶发的无效 logits。
+当前 PyTorch 2.1/T4 环境的 FP16 GRPO log-prob/KL 会出现 NaN，因此最小闭环默认使用
+稳定的 FP32 LoRA 训练；基础模型被冻结，不会创建完整梯度和优化器状态。采样前还会清理并
+重新归一化偶发的无效 logits。FP32 速度较慢，但优先保证课程实验能够正确更新参数。
 
 ## 6. 20 步最小闭环
 

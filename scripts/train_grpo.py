@@ -138,10 +138,10 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Keep frozen base weights in FP32; Trainer still uses FP16 autocast for LoRA training.
+    # T4 FP16 overflows in GRPO log-prob/KL computation; use stable FP32 LoRA training.
     model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float32)
     model.config.use_cache = False
-    print("Precision: FP32 base weights with FP16 mixed-precision training")
+    print("Precision: FP32 training (stable T4 fallback)")
     peft_config = LoraConfig(
         r=8,
         lora_alpha=16,
@@ -160,7 +160,7 @@ def main() -> None:
         max_prompt_length=256,
         max_completion_length=args.max_completion_length,
         temperature=1.0,
-        fp16=True,
+        fp16=False,
         bf16=False,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
