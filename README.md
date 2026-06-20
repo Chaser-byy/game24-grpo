@@ -168,6 +168,7 @@ python scripts/train_grpo.py \
 ```
 
 训练启动时会打印 Python、PyTorch、CUDA、Transformers、TRL、PEFT、GPU 和显存信息。
+T4 使用 FP16 生成时会清理偶发的 NaN/Inf logits，并在采样前重新归一化。
 
 ## 6. 20 步最小闭环
 

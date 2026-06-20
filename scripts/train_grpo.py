@@ -157,6 +157,7 @@ def main() -> None:
         num_generations=args.num_generations,
         max_prompt_length=256,
         max_completion_length=args.max_completion_length,
+        temperature=1.0,
         fp16=True,
         bf16=False,
         gradient_checkpointing=True,
@@ -176,6 +177,10 @@ def main() -> None:
         processing_class=tokenizer,
         peft_config=peft_config,
     )
+    # T4 FP16 generation can occasionally produce invalid logits before sampling.
+    trainer.generation_config.remove_invalid_values = True
+    trainer.generation_config.renormalize_logits = True
+    trainer.generation_config.use_cache = False
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
