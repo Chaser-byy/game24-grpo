@@ -21,10 +21,24 @@ def evaluate_model(
     max_new_tokens: int = 512,
     sample: bool = False,
     seed: int = 42,
+    rank_min: int | None = None,
+    rank_max: int | None = None,
 ) -> dict[str, Any]:
     """Evaluate a base model or LoRA adapter and save details plus summary."""
 
     examples = load_jsonl(data_path)
+    if rank_min is not None:
+        examples = [
+            example
+            for example in examples
+            if example.rank is not None and example.rank >= rank_min
+        ]
+    if rank_max is not None:
+        examples = [
+            example
+            for example in examples
+            if example.rank is not None and example.rank <= rank_max
+        ]
     if limit > 0:
         examples = examples[:limit]
     output = Path(output_path)
@@ -93,6 +107,8 @@ def evaluate_model(
         "average_reward": reward_sum / total if total else 0.0,
         "sample": sample,
         "seed": seed,
+        "rank_min": rank_min,
+        "rank_max": rank_max,
     }
     summary_output = Path(summary_path) if summary_path else output.with_suffix(".summary.json")
     summary_text = json.dumps(summary, ensure_ascii=False, indent=2) + "\n"

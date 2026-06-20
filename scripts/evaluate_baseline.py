@@ -15,6 +15,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--sample", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--rank-min", type=int)
+    parser.add_argument("--rank-max", type=int)
     return parser.parse_args()
 
 
@@ -28,6 +30,8 @@ def main() -> None:
         max_new_tokens=args.max_new_tokens,
         sample=args.sample,
         seed=args.seed,
+        rank_min=args.rank_min,
+        rank_max=args.rank_max,
     )
 
 

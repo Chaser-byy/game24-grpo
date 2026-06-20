@@ -1,120 +1,84 @@
 # 基于 GRPO 的 24 点游戏求解
 
-这是一个课程大作业项目，目标是让 Qwen2.5-1.5B-Instruct 学会根据四个数字生成等于
-24 的算式，并使用可自动验证的奖励进行 GRPO 训练。
-
-当前代码包含数据准备、Qwen 推理、基线评测和最小 LoRA GRPO 训练闭环：
+课程项目目标：使用 Qwen2.5-1.5B-Instruct 和规则奖励训练模型解决 24 点。项目采用
+LoRA + TRL GRPO，面向单张 NVIDIA T4 16GB，不包含 SFT、DeepSpeed、vLLM 或多卡训练。
 
 ```text
-输入四个数字 -> 构造 Prompt -> Qwen 生成回答 -> 提取 <answer>
--> 验证数字和计算结果 -> 返回 0/1 奖励
+本地数据 -> Prompt -> Qwen 生成 -> 答案提取 -> 规则验证/奖励
+        -> GRPO + LoRA -> 评测 -> 图表
 ```
 
-## 目录
+## 主要文件
 
 ```text
 game24/
-  data.py       # 题目结构、JSONL 读写、去重和数据集重叠检查
-  inference.py  # 单卡 Qwen 加载和生成
-  prompts.py    # 构造模型 Prompt
-  parser.py     # 提取 <answer> 中的算式
-  verifier.py   # 检查数字使用和计算结果
-  rewards.py    # 0/1 奖励
-data/
-  sample.jsonl  # 最小示例数据
+  data.py             # JSONL、原始数据规范化、去重
+  prompts.py          # 24 点 Prompt
+  parser.py           # 提取 <answer>
+  verifier.py         # 数字和算术验证
+  rewards.py          # 0/1 正确性奖励
+  inference.py        # Qwen/LoRA 加载与生成
+  evaluation.py       # 可复用批量评测
 scripts/
-  smoke_test.py # 不需要模型的端到端示例
-  infer_once.py # Qwen 单题推理
-  prepare_data.py      # 下载或转换数据集
-  prepare_train_data.py # 准备正式训练/验证数据
-  evaluate_baseline.py # 批量基线评测
-  train_grpo.py        # 单卡 LoRA GRPO 训练
-  plot_results.py      # 生成课程报告图表
-tests/
-  test_pipeline.py
+  download_model.py   # 从 ModelScope 下载 Qwen
+  prepare_data.py     # 准备外部测试集
+  prepare_train_data.py # 准备 train/validation/unsolvable
+  evaluate_baseline.py  # 基线或 LoRA 评测
+  train_grpo.py         # 单卡 LoRA GRPO
+  plot_results.py       # 报告图表
 ```
 
-## 安装与运行
+## 1. 持久化环境
 
-需要 Python 3.10 或更高版本。当前核心流程只使用 Python 标准库。
+模型、数据、虚拟环境和输出都放在 `/home/ma-user/work`，避免 Notebook 重启后丢失：
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-python scripts/smoke_test.py
-pytest -q
+```text
+/home/ma-user/work/
+  game24-grpo/
+  models/Qwen2.5-1.5B-Instruct/
+  data/game24.csv
+  data/nlile_24_game.csv
+  venvs/game24/
 ```
 
-Smoke test 使用固定字符串模拟模型输出，因此不需要 GPU。
-
-## Qwen 单题推理
-
-在华为云 ModelArts 或实验室的 NVIDIA GPU 环境中，先使用镜像预装的 CUDA 和
-PyTorch，再安装项目的轻量推理依赖。项目不会指定或重新安装某个 PyTorch/CUDA 版本。
-项目固定使用 Transformers 4.46.3；安装项目依赖时不会主动安装或替换 PyTorch。
+目标环境为 Python 3.10、PyTorch 2.1.0 + CUDA 11.8、Transformers 4.46.3。
+项目不会主动安装或替换 PyTorch：
 
 ```bash
-pip install -e ".[inference]"
+source /home/ma-user/work/venvs/game24/bin/activate
+cd /home/ma-user/work/game24-grpo
+pip install -e ".[grpo,analysis]"
 
-# 使用本地模型目录
-python scripts/infer_once.py \
-  --model ./models/Qwen2.5-1.5B-Instruct \
-  --numbers 1 3 4 6
-
-# 或直接使用 Hugging Face 模型名称（首次运行会下载模型）
-python scripts/infer_once.py \
-  --model Qwen/Qwen2.5-1.5B-Instruct \
-  --numbers 1 3 4 6
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 ```
 
-脚本使用 Qwen 聊天模板，只解码新生成的 token，然后复用项目的答案提取、验证和奖励
-函数。默认使用确定性的贪心生成，可通过 `--max-new-tokens` 调整最大输出长度。需要采样时
-添加 `--sample`，此时使用 `temperature=0.7` 和 `top_p=0.9`。
+## 2. 准备本地模型
 
-## 准备数据
-
-数据脚本优先支持本地 CSV/JSON/JSONL，同时保留 Hugging Face 在线加载。它会统一字段并按排序后的
-四个数字去重，同一数字组合保留第一次出现的记录。官方 CSV 的 `Rank` 和
-`Solved rate` 会一并保存，便于后续分析困难题。
+华为云能访问 ModelScope 时：
 
 ```bash
-# 华为云无法连接 Hugging Face 时，不需要安装 datasets
+pip install -e ".[download]"
+python scripts/download_model.py \
+  --model-id Qwen/Qwen2.5-1.5B-Instruct \
+  --output-dir /home/ma-user/work/models/Qwen2.5-1.5B-Instruct
+```
+
+若 ModelScope 也不可访问，在其他联网机器下载模型，通过 OBS 或浏览器上传到上述目录。
+训练、评测命令都使用本地模型路径，不依赖 Hugging Face Hub。
+
+## 3. 准备数据
+
+先将 `test-time-compute/game-of-24` 的本地 CSV 转为统一测试集：
+
+```bash
 python scripts/prepare_data.py \
   --input-file /home/ma-user/work/data/game24.csv \
   --dataset test-time-compute/game-of-24 \
   --output data/processed/test.jsonl
-
-# 能连接 Hugging Face 时再安装 datasets
-pip install -e ".[data]"
-
-python scripts/prepare_data.py \
-  --dataset nlile/24-game \
-  --output data/processed/nlile.jsonl
-
-python scripts/prepare_data.py \
-  --dataset test-time-compute/game-of-24 \
-  --output data/processed/test.jsonl
-
 ```
 
-本地 CSV 路径不会导入或访问 Hugging Face。可用 `--split` 选择在线数据集 split，
-用 `--limit` 只转换前几条记录。
-
-## 准备正式训练数据
-
-将本地下载好的 `nlile/24-game` CSV、JSON 或 JSONL 划分为训练集、验证集和无解测试集：
-
-```bash
-python scripts/prepare_train_data.py \
-  --input-file /home/ma-user/work/data/nlile_24_game.csv \
-  --output-dir data/processed \
-  --val-ratio 0.1 \
-  --seed 42
-```
-
-如果已有外部测试集，增加 `--test-file` 排除重复数字组合：
+再将本地 `nlile/24-game` CSV/JSON/JSONL 划分为训练、验证和无解测试集，并排除与外部
+测试集重复的数字组合：
 
 ```bash
 python scripts/prepare_train_data.py \
@@ -125,18 +89,16 @@ python scripts/prepare_train_data.py \
   --test-file data/processed/test.jsonl
 ```
 
-输出文件为 `train.jsonl`、`validation.jsonl` 和 `unsolvable_test.jsonl`。相同数字的不同
-排列只保留第一次出现的记录；固定 seed 会得到相同的训练/验证划分。
+生成：
 
-## 基线评测
-
-在预装 CUDA 和 PyTorch 的 NVIDIA GPU 镜像中安装其余依赖：
-
-```bash
-pip install -e ".[inference,data]"
+```text
+data/processed/train.jsonl
+data/processed/validation.jsonl
+data/processed/unsolvable_test.jsonl
+data/processed/test.jsonl
 ```
 
-先跑 20 道题确认流程：
+## 4. 训练前基线
 
 ```bash
 python scripts/evaluate_baseline.py \
@@ -146,29 +108,29 @@ python scripts/evaluate_baseline.py \
   --output outputs/baseline_20.jsonl
 ```
 
-完整评测使用 `--limit 0`：
+输出明细和 `outputs/baseline_20.summary.json`。
+
+## 5. 两步 Smoke Training
+
+先用最小任务确认 CUDA、TRL、LoRA、生成和奖励都能运行：
 
 ```bash
-python scripts/evaluate_baseline.py \
+python scripts/train_grpo.py \
   --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
-  --data data/processed/test.jsonl \
-  --limit 0 \
-  --output outputs/baseline_full.jsonl
+  --data data/processed/train.jsonl \
+  --eval-data data/processed/validation.jsonl \
+  --output outputs/grpo_2step \
+  --limit 8 \
+  --max-steps 2 \
+  --num-generations 2 \
+  --max-completion-length 128 \
+  --eval-limit 5 \
+  --run-eval
 ```
 
-逐题结果保存在指定的 JSONL 文件中，汇总指标自动保存在同目录的
-`baseline_20.summary.json` 或 `baseline_full.summary.json`。评测支持
-`--max-new-tokens`、`--sample` 和 `--seed`。
+训练启动时会打印 Python、PyTorch、CUDA、Transformers、TRL、PEFT、GPU 和显存信息。
 
-## GRPO Smoke Training
-
-训练环境使用已有的 PyTorch 2.1.0 + CUDA 11.8，再安装固定版本的训练依赖：
-
-```bash
-pip install -e ".[grpo]"
-```
-
-下面的命令用 20 条可解题目训练 20 步，默认每个 Prompt 生成 4 个回答：
+## 6. 20 步最小闭环
 
 ```bash
 python scripts/train_grpo.py \
@@ -181,61 +143,95 @@ python scripts/train_grpo.py \
   --run-eval
 ```
 
-训练日志分别显示答案提取、数字使用和最终正确性奖励。LoRA adapter 保存在
-`outputs/grpo_smoke/`，训练 checkpoint 也保存在该目录下。可调整
-`--learning-rate`、`--num-generations`、`--max-completion-length`、`--eval-limit` 和
-`--seed`。不需要训练后评测时，省略 `--eval-data` 和 `--run-eval`。
+默认每个 Prompt 生成 2 个回答、最大生成长度 128。奖励分别为答案提取 `0.1`、数字合法
+`0.3`、正确结果 `1.0`。
 
-一次完整实验的主要输出为：
+## 7. 正式训练与续训
 
-```text
-outputs/grpo_smoke/
-  adapter_config.json     # LoRA 配置
-  adapter_model.safetensors # LoRA 权重
-  tokenizer files         # Qwen tokenizer
-  training_args.json      # 命令参数、GRPO/LoRA 参数和完成时间
-  train_metrics.jsonl     # 每步 loss、总 reward 和各分项 reward
-  eval_results.jsonl      # 逐题评测明细（启用 --run-eval 时）
-  eval_summary.json       # 正确率等汇总指标（启用 --run-eval 时）
-  checkpoint-*/           # TRL checkpoint
+```bash
+python scripts/train_grpo.py \
+  --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
+  --data data/processed/train.jsonl \
+  --eval-data data/processed/validation.jsonl \
+  --output outputs/grpo_full \
+  --limit 0 \
+  --max-steps 200 \
+  --learning-rate 1e-5 \
+  --num-generations 2 \
+  --max-completion-length 192 \
+  --eval-limit 0 \
+  --run-eval
 ```
 
-`train_metrics.jsonl` 直接保存 TRL 的 `log_history`，不替换终端中的 TRL 日志。
-`eval_summary.json` 包含样本数、正确数、正确率、答案提取率、数字合法率和平均奖励。
+从已有 checkpoint 继续：
 
-现有评测脚本可以直接读取 adapter 目录，并从 `adapter_config.json` 找到原始模型：
+```bash
+python scripts/train_grpo.py \
+  --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
+  --data data/processed/train.jsonl \
+  --output outputs/grpo_full \
+  --limit 0 \
+  --max-steps 200 \
+  --resume-from-checkpoint outputs/grpo_full/checkpoint-100
+```
+
+训练目录包含 LoRA adapter、tokenizer、checkpoint、`training_args.json`、
+`train_metrics.jsonl`，启用 `--run-eval` 时还包含 `eval_results.jsonl` 和
+`eval_summary.json`。
+
+## 8. 完整、困难和无解集评测
+
+完整测试集：
 
 ```bash
 python scripts/evaluate_baseline.py \
-  --model outputs/grpo_smoke \
+  --model outputs/grpo_full \
   --data data/processed/test.jsonl \
-  --limit 20 \
-  --output outputs/grpo_smoke_eval.jsonl
+  --limit 0 \
+  --output outputs/grpo_full_test.jsonl
 ```
 
-当前 GRPO 脚本只面向单张 NVIDIA GPU，尚未在本地运行训练或验证 T4 显存占用。
-
-## 生成实验图表
-
-安装轻量绘图依赖，然后读取训练日志和训练前后评测汇总：
+指定 rank 900–1000 的困难子集：
 
 ```bash
-pip install -e ".[analysis]"
+python scripts/evaluate_baseline.py \
+  --model outputs/grpo_full \
+  --data data/processed/test.jsonl \
+  --rank-min 900 \
+  --rank-max 1000 \
+  --limit 0 \
+  --output outputs/grpo_hard.jsonl
+```
 
+无解集（提取率可作为强行编造答案的参考）：
+
+```bash
+python scripts/evaluate_baseline.py \
+  --model outputs/grpo_full \
+  --data data/processed/unsolvable_test.jsonl \
+  --limit 0 \
+  --output outputs/grpo_unsolvable.jsonl
+```
+
+## 9. 生成报告图表
+
+```bash
 python scripts/plot_results.py \
-  --train-metrics outputs/grpo_smoke/train_metrics.jsonl \
+  --train-metrics outputs/grpo_full/train_metrics.jsonl \
   --baseline-summary outputs/baseline_20.summary.json \
-  --grpo-summary outputs/grpo_smoke/eval_summary.json \
-  --output-dir outputs/grpo_smoke/figures
+  --grpo-summary outputs/grpo_full/eval_summary.json \
+  --output-dir outputs/grpo_full/figures
 ```
 
-输出目录包含：
+生成 reward、分项 reward、loss、训练前后对比 PNG，以及 `comparison_metrics.csv`。
 
-```text
-training_rewards.png       # 总 reward 与三个分项 reward
-training_loss.png          # loss 曲线
-before_after_comparison.png # 正确率、提取率、数字合法率、平均 reward 对比
-comparison_metrics.csv     # 图中使用的具体数值
+## 本地检查
+
+本地没有模型和 GPU 时只运行：
+
+```bash
+pip install -e ".[dev]"
+python scripts/smoke_test.py
+pytest -q
+ruff check .
 ```
-
-若 TRL 日志或汇总文件缺少某项指标，脚本会打印提示并跳过对应曲线。

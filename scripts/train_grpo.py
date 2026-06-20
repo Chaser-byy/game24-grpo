@@ -4,6 +4,7 @@
 import argparse
 import gc
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,15 +28,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=20, help="Training examples; 0 uses all")
     parser.add_argument("--max-steps", type=int, default=20)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
-    parser.add_argument("--num-generations", type=int, default=4)
+    parser.add_argument("--num-generations", type=int, default=2)
     parser.add_argument(
         "--max-completion-length",
         "--max-new-tokens",
         dest="max_completion_length",
         type=int,
-        default=256,
+        default=128,
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--resume-from-checkpoint", help="Path to a TRL checkpoint")
     return parser.parse_args()
 
 
@@ -89,12 +91,32 @@ def main() -> None:
     args = parse_args()
     if args.run_eval and not args.eval_data:
         raise SystemExit("--run-eval requires --eval-data")
+    if not Path(args.model).is_dir():
+        raise SystemExit(f"local model directory not found: {args.model}")
+    if not Path(args.data).is_file():
+        raise SystemExit(f"training data not found: {args.data}")
+    if args.resume_from_checkpoint and not Path(args.resume_from_checkpoint).is_dir():
+        raise SystemExit(f"checkpoint not found: {args.resume_from_checkpoint}")
 
+    import peft
     import torch
+    import transformers
+    import trl
     from datasets import Dataset
     from peft import LoraConfig
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from trl import GRPOConfig, GRPOTrainer
+
+    if not torch.cuda.is_available():
+        raise SystemExit("CUDA is unavailable; GRPO training requires one NVIDIA GPU")
+    properties = torch.cuda.get_device_properties(0)
+    memory_gb = properties.total_memory / 1024**3
+    print(f"Python: {sys.version.split()[0]}")
+    print(f"PyTorch: {torch.__version__} (CUDA {torch.version.cuda})")
+    print(f"Transformers: {transformers.__version__}")
+    print(f"TRL: {trl.__version__}")
+    print(f"PEFT: {peft.__version__}")
+    print(f"GPU: {properties.name} ({memory_gb:.1f} GB)")
 
     examples = [example for example in load_jsonl(args.data) if example.solvable is not False]
     if args.limit > 0:
@@ -170,7 +192,7 @@ def main() -> None:
     _write_json(output_dir / "training_args.json", run_info)
 
     print(f"Training on {len(examples)} puzzles; saving to {args.output}")
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output)
     tokenizer.save_pretrained(args.output)
 
