@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare reproducible train/validation splits from local nlile/24-game data."""
+"""Prepare reproducible train/validation splits from local Game of 24 data."""
 
 import argparse
 import random
@@ -14,12 +14,11 @@ from game24.data import (
     save_jsonl,
 )
 
-SOURCE = "nlile/24-game"
-
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare local nlile/24-game training data")
+    parser = argparse.ArgumentParser(description="Prepare local Game of 24 training data")
     parser.add_argument("--input-file", required=True, help="Local CSV, JSON, or JSONL file")
+    parser.add_argument("--source", default="nlile/24-game", help="Dataset source label")
     parser.add_argument("--output-dir", default="data/processed")
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
@@ -33,7 +32,9 @@ def main() -> None:
         raise SystemExit("--val-ratio must be between 0 and 1")
 
     records = read_records(args.input_file)
-    raw_examples = [normalize_record(record, index, SOURCE) for index, record in enumerate(records)]
+    raw_examples = [
+        normalize_record(record, index, args.source) for index, record in enumerate(records)
+    ]
     raw_solvable = sum(example.solvable is True for example in raw_examples)
     raw_unsolvable = len(raw_examples) - raw_solvable
 

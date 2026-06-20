@@ -21,6 +21,7 @@ game24/
   evaluation.py       # 可复用批量评测
 scripts/
   download_model.py   # 从 ModelScope 下载 Qwen
+  download_data.py    # 从 ModelScope/Hugging Face 下载数据
   prepare_data.py     # 准备外部测试集
   prepare_train_data.py # 准备 train/validation/unsolvable
   evaluate_baseline.py  # 基线或 LoRA 评测
@@ -68,6 +69,30 @@ python scripts/download_model.py \
 
 ## 3. 准备数据
 
+华为云优先从 ModelScope 下载可用于 GRPO 的 1000 条 24 点训练题：
+
+```bash
+python scripts/download_data.py \
+  --provider modelscope \
+  --dataset cqupthzr/game24 \
+  --output /home/ma-user/work/data/game24_train.jsonl
+```
+
+该数据集字段为 `nums` 和 `target`，脚本会补充 `solvable=true` 和数据来源。它适合完成
+最小训练闭环，但不是课程指定 `nlile/24-game` 的同名镜像。若某台机器能访问 Hugging
+Face，可下载课程指定数据：
+
+```bash
+python scripts/download_data.py \
+  --provider huggingface \
+  --dataset nlile/24-game \
+  --endpoint https://huggingface.co \
+  --output /home/ma-user/work/data/nlile_24_game.jsonl
+```
+
+下载脚本只保存原始 JSONL，不会自动启动训练。若所有数据源都不可访问，请在其他联网机器
+运行后通过 OBS 或浏览器上传文件。
+
 先将 `test-time-compute/game-of-24` 的本地 CSV 转为统一测试集：
 
 ```bash
@@ -82,7 +107,8 @@ python scripts/prepare_data.py \
 
 ```bash
 python scripts/prepare_train_data.py \
-  --input-file /home/ma-user/work/data/nlile_24_game.csv \
+  --input-file /home/ma-user/work/data/game24_train.jsonl \
+  --source cqupthzr/game24 \
   --output-dir data/processed \
   --val-ratio 0.1 \
   --seed 42 \
