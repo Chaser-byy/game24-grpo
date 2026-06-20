@@ -83,12 +83,26 @@ def number_usage_reward(
 def correctness_reward(
     completions: list[Any], numbers: list[list[int]], **_: Any
 ) -> list[float]:
-    """Give the largest reward to expressions that equal 24."""
+    """Reward 24 exactly, with a small signal for legal expressions close to 24."""
 
-    return [
-        compute_reward(extract_answer(completion_text(completion)), tuple(expected))
-        for completion, expected in zip(completions, numbers, strict=True)
-    ]
+    rewards = []
+    for completion, expected in zip(completions, numbers, strict=True):
+        expression = extract_answer(completion_text(completion))
+        expected_numbers = tuple(expected)
+        if compute_reward(expression, expected_numbers):
+            rewards.append(1.0)
+            continue
+        if expression is None:
+            rewards.append(0.0)
+            continue
+
+        result = check_expression(expression, expected_numbers)
+        if result.value is None or sorted(result.used_numbers) != sorted(expected):
+            rewards.append(0.0)
+            continue
+        distance = float(abs(result.value - 24))
+        rewards.append(0.2 * max(0.0, 1.0 - distance / 24.0))
+    return rewards
 
 
 def main() -> None:

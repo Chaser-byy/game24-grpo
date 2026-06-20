@@ -2,12 +2,14 @@
 
 from pathlib import Path
 
+import pytest
+
 from game24.data import Game24Example, load_jsonl, save_jsonl
 from game24.parser import extract_answer
 from game24.prompts import build_prompt
 from game24.rewards import compute_reward
 from game24.verifier import check_expression, verify_expression
-from scripts.train_grpo import extraction_reward, number_usage_reward
+from scripts.train_grpo import correctness_reward, extraction_reward, number_usage_reward
 
 
 def test_jsonl_round_trip(tmp_path: Path) -> None:
@@ -53,3 +55,13 @@ def test_grpo_shaped_rewards() -> None:
 
     assert extraction_reward(completions) == [0.1, 0.1, 0.0]
     assert number_usage_reward(completions, numbers) == [0.1, 0.3, 0.0]
+
+    close_answers = [
+        "<answer>(6 - 1) * 4 + 3</answer>",
+        "<answer>6 / (1 - 3 / 4)</answer>",
+        "<answer>6 * 4</answer>",
+    ]
+    rewards = correctness_reward(close_answers, numbers)
+    assert rewards[0] == pytest.approx(0.2 * 23 / 24)
+    assert rewards[1] == 1.0
+    assert rewards[2] == 0.0

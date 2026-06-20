@@ -9,6 +9,7 @@ def build_prompt(numbers: tuple[int, int, int, int]) -> str:
 You may only use +, -, *, / and parentheses.
 Think step by step. Before answering, check that all four numbers are each used exactly once
 and that the expression equals 24.
+Keep the entire response under 40 words.
 
 Output exactly these two blocks and nothing else:
 <think>one short sentence with your check</think>
