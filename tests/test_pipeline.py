@@ -7,6 +7,7 @@ from game24.parser import extract_answer
 from game24.prompts import build_prompt
 from game24.rewards import compute_reward
 from game24.verifier import check_expression, verify_expression
+from scripts.train_grpo import extraction_reward, number_usage_reward
 
 
 def test_jsonl_round_trip(tmp_path: Path) -> None:
@@ -40,3 +41,15 @@ def test_minimal_pipeline_reward() -> None:
     answer = extract_answer("<answer>6/(1-3/4)</answer>")
     assert compute_reward(answer, example.numbers) == 1.0
     assert compute_reward(None, example.numbers) == 0.0
+
+
+def test_grpo_shaped_rewards() -> None:
+    completions = [
+        "<answer>1 + 3</answer>",
+        "<answer>(1 + 3) * 4 + 6</answer>",
+        "no answer tag",
+    ]
+    numbers = [[1, 3, 4, 6]] * 3
+
+    assert extraction_reward(completions) == [0.1, 0.1, 0.0]
+    assert number_usage_reward(completions, numbers) == [0.1, 0.3, 0.0]

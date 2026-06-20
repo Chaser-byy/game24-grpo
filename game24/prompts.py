@@ -11,5 +11,5 @@ Think step by step. Before answering, check that all four numbers are each used 
 and that the expression equals 24.
 
 Output exactly these two blocks and nothing else:
-<think>your reasoning and final checks</think>
+<think>one short sentence with your check</think>
 <answer>one arithmetic expression</answer>"""

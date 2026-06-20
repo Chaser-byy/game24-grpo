@@ -62,7 +62,7 @@ def extraction_reward(completions: list[Any], **_: Any) -> list[float]:
 def number_usage_reward(
     completions: list[Any], numbers: list[list[int]], **_: Any
 ) -> list[float]:
-    """Reward valid syntax that uses every input number exactly once."""
+    """Reward parseable expressions, with more reward for exact number usage."""
 
     rewards = []
     for completion, expected in zip(completions, numbers, strict=True):
@@ -71,8 +71,12 @@ def number_usage_reward(
             rewards.append(0.0)
             continue
         result = check_expression(expression, tuple(expected))
-        numbers_match = result.value is not None and sorted(result.used_numbers) == sorted(expected)
-        rewards.append(0.3 if numbers_match else 0.0)
+        if result.value is None:
+            rewards.append(0.0)
+        elif sorted(result.used_numbers) == sorted(expected):
+            rewards.append(0.3)
+        else:
+            rewards.append(0.1)
     return rewards
 
 
