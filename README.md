@@ -168,7 +168,8 @@ python scripts/train_grpo.py \
 ```
 
 训练启动时会打印 Python、PyTorch、CUDA、Transformers、TRL、PEFT、GPU 和显存信息。
-T4 使用 FP16 生成时会清理偶发的 NaN/Inf logits，并在采样前重新归一化。
+为避免 T4 上的 FP16 logits/KL 溢出，冻结的基础权重保持 FP32，LoRA 训练仍使用 FP16
+混合精度；采样前还会清理并重新归一化偶发的无效 logits。
 
 ## 6. 20 步最小闭环
 

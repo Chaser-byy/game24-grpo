@@ -138,8 +138,10 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16)
+    # Keep frozen base weights in FP32; Trainer still uses FP16 autocast for LoRA training.
+    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float32)
     model.config.use_cache = False
+    print("Precision: FP32 base weights with FP16 mixed-precision training")
     peft_config = LoraConfig(
         r=8,
         lora_alpha=16,
