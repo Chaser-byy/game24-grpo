@@ -93,6 +93,19 @@ python scripts/download_data.py \
 下载脚本只保存原始 JSONL，不会自动启动训练。若所有数据源都不可访问，请在其他联网机器
 运行后通过 OBS 或浏览器上传文件。
 
+将 ModelScope 数据划分为训练和验证集，用于确认训练闭环：
+
+```bash
+python scripts/prepare_train_data.py \
+  --input-file /home/ma-user/work/data/game24_train.jsonl \
+  --source cqupthzr/game24 \
+  --output-dir data/processed \
+  --val-ratio 0.1 \
+  --seed 42
+```
+
+这批数据可能与下面的外部测试集重叠，因此不要用它在同一测试集上的结果作为正式报告指标。
+
 先将 `test-time-compute/game-of-24` 的本地 CSV 转为统一测试集：
 
 ```bash
@@ -102,13 +115,13 @@ python scripts/prepare_data.py \
   --output data/processed/test.jsonl
 ```
 
-再将本地 `nlile/24-game` CSV/JSON/JSONL 划分为训练、验证和无解测试集，并排除与外部
-测试集重复的数字组合：
+正式实验使用 `nlile/24-game` 时，划分训练、验证和无解测试集，并排除与外部测试集重复
+的数字组合：
 
 ```bash
 python scripts/prepare_train_data.py \
-  --input-file /home/ma-user/work/data/game24_train.jsonl \
-  --source cqupthzr/game24 \
+  --input-file /home/ma-user/work/data/nlile_24_game.jsonl \
+  --source nlile/24-game \
   --output-dir data/processed \
   --val-ratio 0.1 \
   --seed 42 \
