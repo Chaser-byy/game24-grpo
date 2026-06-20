@@ -79,8 +79,8 @@ python scripts/download_data.py \
 ```
 
 该数据集字段为 `nums` 和 `target`，脚本会补充 `solvable=true` 和数据来源。它适合完成
-最小训练闭环，但不是课程指定 `nlile/24-game` 的同名镜像。若某台机器能访问 Hugging
-Face，可下载课程指定数据：
+最小训练闭环，但不是课程指定 `nlile/24-game` 的同名镜像。ModelScope 下载使用公开 API，
+不依赖 `modelscope.msdatasets` 子模块。若某台机器能访问 Hugging Face，可下载课程指定数据：
 
 ```bash
 python scripts/download_data.py \

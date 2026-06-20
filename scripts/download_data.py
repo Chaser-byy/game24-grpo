@@ -8,6 +8,8 @@ from collections.abc import Iterable
 from itertools import islice
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,13 +59,40 @@ def main() -> None:
 
 
 def _load_modelscope(dataset_id: str, subset: str, split: str) -> Iterable[dict[str, Any]]:
-    try:
-        from modelscope.msdatasets import MsDataset
-    except ModuleNotFoundError as error:
-        raise SystemExit('ModelScope is required; run: pip install -e ".[download]"') from error
-
     print(f"Downloading {dataset_id} ({subset}/{split}) from ModelScope")
-    return MsDataset.load(dataset_id, subset_name=subset, split=split)
+    try:
+        owner, name = dataset_id.split("/", 1)
+    except ValueError as error:
+        raise SystemExit("ModelScope dataset ID must use owner/name format") from error
+
+    page = 1
+    page_size = 100
+    while True:
+        query = urlencode(
+            {
+                "Owner": owner,
+                "Name": name,
+                "Revision": "master",
+                "Subset": subset,
+                "Split": split,
+                "PageSize": page_size,
+                "PageNumber": page,
+            }
+        )
+        url = f"https://modelscope.cn/api/v1/datasets/preview?{query}"
+        with urlopen(url, timeout=60) as response:
+            payload = json.load(response)
+
+        if payload.get("Code") != 200:
+            raise RuntimeError(payload.get("Message", "ModelScope download failed"))
+        rows = payload.get("Data") or []
+        for row in rows:
+            yield json.loads(row["Content"])
+
+        total = int(payload.get("TotalCount") or 0)
+        if not rows or page * page_size >= total:
+            break
+        page += 1
 
 
 def _load_huggingface(dataset_id: str, split: str, endpoint: str) -> Iterable[dict[str, Any]]:
