@@ -7,6 +7,7 @@ def build_prompt(numbers: tuple[int, int, int, int]) -> str:
     values = ", ".join(map(str, numbers))
     return f"""Solve the Game24 puzzle with the numbers [{values}].
 Use every given number exactly once. Use only +, -, *, / and parentheses.
+Copy the four input integers exactly; never replace, omit, or invent a number.
 Before answering, verify the number usage and that the expression equals 24.
 
 Your response must follow this XML protocol:

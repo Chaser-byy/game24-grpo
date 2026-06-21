@@ -25,6 +25,11 @@ def test_answer_extraction_and_verification() -> None:
     assert answer == "6 / (1 - 3 / 4)"
     assert verify_expression(answer, (1, 3, 4, 6))
 
+    answer_with_result = extract_answer("<answer>6 / (1 - 3 / 4) = 24</answer>")
+    assert answer_with_result == "6 / (1 - 3 / 4)"
+    assert verify_expression(answer_with_result, (1, 3, 4, 6))
+    assert extract_answer("<answer>6 * 4 = 23</answer>") == "6 * 4 = 23"
+
 
 def test_wrong_expressions_fail() -> None:
     assert not verify_expression("6 * 4", (1, 3, 4, 6))
@@ -45,6 +50,7 @@ def test_minimal_pipeline_reward() -> None:
     assert "<answer>" in prompt and "</answer>" in prompt
     assert "think:" not in prompt and "answer:" not in prompt
     assert "one short sentence with your check" not in prompt
+    assert "never replace, omit, or invent a number" in prompt
     answer = extract_answer("<answer>6/(1-3/4)</answer>")
     assert compute_reward(answer, example.numbers) == 1.0
     assert compute_reward(None, example.numbers) == 0.0
