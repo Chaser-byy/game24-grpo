@@ -39,7 +39,12 @@ def test_wrong_expressions_fail() -> None:
 
 def test_minimal_pipeline_reward() -> None:
     example = Game24Example("demo", (1, 3, 4, 6))
-    assert "1, 3, 4, 6" in build_prompt(example.numbers)
+    prompt = build_prompt(example.numbers)
+    assert "1, 3, 4, 6" in prompt
+    assert "<think>" in prompt and "</think>" in prompt
+    assert "<answer>" in prompt and "</answer>" in prompt
+    assert "think:" not in prompt and "answer:" not in prompt
+    assert "one short sentence with your check" not in prompt
     answer = extract_answer("<answer>6/(1-3/4)</answer>")
     assert compute_reward(answer, example.numbers) == 1.0
     assert compute_reward(None, example.numbers) == 0.0
