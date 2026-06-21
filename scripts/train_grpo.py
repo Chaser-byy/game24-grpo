@@ -5,6 +5,8 @@ import argparse
 import gc
 import json
 import sys
+import traceback
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -123,19 +125,11 @@ def main() -> None:
     from datasets import Dataset
     from peft import LoraConfig
     from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers.trainer_callback import ProgressCallback
     from trl import GRPOConfig, GRPOTrainer
 
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is unavailable; GRPO training requires one NVIDIA GPU")
-    properties = torch.cuda.get_device_properties(0)
-    memory_gb = properties.total_memory / 1024**3
-    print(f"Python: {sys.version.split()[0]}")
-    print(f"PyTorch: {torch.__version__} (CUDA {torch.version.cuda})")
-    print(f"Transformers: {transformers.__version__}")
-    print(f"TRL: {trl.__version__}")
-    print(f"PEFT: {peft.__version__}")
-    print(f"GPU: {properties.name} ({memory_gb:.1f} GB)")
-
     examples = [example for example in load_jsonl(args.data) if example.solvable is not False]
     if args.limit > 0:
         examples = examples[: args.limit]
@@ -151,15 +145,35 @@ def main() -> None:
     ]
     train_dataset = Dataset.from_list(rows)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_path = output_dir / "train.log"
+    log_file = log_path.open("a", encoding="utf-8")
 
-    # T4 FP16 overflows in GRPO log-prob/KL computation; use stable FP32 LoRA training.
-    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float32)
-    model.config.use_cache = False
-    print("Precision: FP32 training (stable T4 fallback)")
+    def log(message: str) -> None:
+        print(message, file=log_file, flush=True)
+
+    properties = torch.cuda.get_device_properties(0)
+    memory_gb = properties.total_memory / 1024**3
+    log(f"\n=== Training run {datetime.now(timezone.utc).isoformat()} ===")
+    log(f"Python: {sys.version.split()[0]}")
+    log(f"PyTorch: {torch.__version__} (CUDA {torch.version.cuda})")
+    log(f"Transformers: {transformers.__version__}")
+    log(f"TRL: {trl.__version__}")
+    log(f"PEFT: {peft.__version__}")
+    log(f"GPU: {properties.name} ({memory_gb:.1f} GB)")
+    log(f"Arguments: {json.dumps(vars(args), ensure_ascii=False)}")
+
+    with redirect_stdout(log_file), redirect_stderr(log_file):
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        tokenizer.padding_side = "left"
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        # T4 FP16 overflows in GRPO log-prob/KL computation; use stable FP32 LoRA training.
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.float32)
+        model.config.use_cache = False
+    log("Precision: FP32 training (stable T4 fallback)")
     peft_config = LoraConfig(
         r=8,
         lora_alpha=16,
@@ -189,21 +203,31 @@ def main() -> None:
         remove_unused_columns=False,
         seed=args.seed,
     )
-    trainer = GRPOTrainer(
-        model=model,
-        reward_funcs=[extraction_reward, number_usage_reward, correctness_reward],
-        args=training_args,
-        train_dataset=train_dataset,
-        processing_class=tokenizer,
-        peft_config=peft_config,
-    )
+    with redirect_stdout(log_file), redirect_stderr(log_file):
+        trainer = GRPOTrainer(
+            model=model,
+            reward_funcs=[extraction_reward, number_usage_reward, correctness_reward],
+            args=training_args,
+            train_dataset=train_dataset,
+            processing_class=tokenizer,
+            peft_config=peft_config,
+        )
     # T4 FP16 generation can occasionally produce invalid logits before sampling.
     trainer.generation_config.remove_invalid_values = True
     trainer.generation_config.renormalize_logits = True
     trainer.generation_config.use_cache = False
 
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    class FileProgressCallback(ProgressCallback):
+        """Keep the progress bar on screen and write metrics to the run log."""
+
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            if state.is_world_process_zero and logs:
+                record = {"step": state.global_step, **logs}
+                log(json.dumps(record, ensure_ascii=False, default=str))
+
+    trainer.remove_callback(ProgressCallback)
+    trainer.add_callback(FileProgressCallback())
+
     started_at = datetime.now(timezone.utc).isoformat()
     run_info = {
         "command_args": vars(args),
@@ -213,13 +237,21 @@ def main() -> None:
         "started_at": started_at,
         "completed_at": None,
         "final_step": 0,
+        "log_file": str(log_path),
     }
     _write_json(output_dir / "training_args.json", run_info)
 
-    print(f"Training on {len(examples)} puzzles; saving to {args.output}")
-    train_result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
-    trainer.save_model(args.output)
-    tokenizer.save_pretrained(args.output)
+    log(f"Training on {len(examples)} puzzles; saving to {args.output}")
+    try:
+        with redirect_stdout(log_file):
+            train_result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
+    except Exception:
+        traceback.print_exc(file=log_file)
+        log_file.close()
+        raise SystemExit(f"Training failed; see {log_path}")
+    with redirect_stdout(log_file), redirect_stderr(log_file):
+        trainer.save_model(args.output)
+        tokenizer.save_pretrained(args.output)
 
     completed_at = datetime.now(timezone.utc).isoformat()
     final_record = {
@@ -242,15 +274,18 @@ def main() -> None:
         del model
         gc.collect()
         torch.cuda.empty_cache()
-        evaluate_model(
-            args.output,
-            args.eval_data,
-            output_dir / "eval_results.jsonl",
-            summary_path=output_dir / "eval_summary.json",
-            limit=args.eval_limit,
-            max_new_tokens=args.max_completion_length,
-            seed=args.seed,
-        )
+        with redirect_stdout(log_file), redirect_stderr(log_file):
+            evaluate_model(
+                args.output,
+                args.eval_data,
+                output_dir / "eval_results.jsonl",
+                summary_path=output_dir / "eval_summary.json",
+                limit=args.eval_limit,
+                max_new_tokens=args.max_completion_length,
+                seed=args.seed,
+            )
+    log(f"Training complete; metrics saved to {output_dir / 'train_metrics.jsonl'}")
+    log_file.close()
 
 
 def _write_json(path: Path, content: dict[str, Any]) -> None:

@@ -219,9 +219,10 @@ python scripts/train_grpo.py \
   --resume-from-checkpoint outputs/grpo_full/checkpoint-100
 ```
 
-训练目录包含 LoRA adapter、tokenizer、checkpoint、`training_args.json`、
+训练目录包含 LoRA adapter、tokenizer、checkpoint、`training_args.json`、`train.log` 和
 `train_metrics.jsonl`，启用 `--run-eval` 时还包含 `eval_results.jsonl` 和
-`eval_summary.json`。
+`eval_summary.json`。训练期间终端只显示进度条；环境信息、警告、逐步指标和训练后评测文本
+实时追加到 `train.log`。结构化指标仍保存在 `train_metrics.jsonl`，用于后续绘图。
 
 ## 8. 完整、困难和无解集评测
 
