@@ -6,7 +6,7 @@
   "num_generations": 4,
   "prompts_per_batch": 1,
   "gradient_accumulation_steps": 4,
-  "max_completion_length": 256,
+  "max_completion_length": 192,
   "temperature": 1.0,
   "precision": "fp32",
   "lora_r": 16,

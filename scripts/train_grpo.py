@@ -182,8 +182,17 @@ def main() -> None:
         _logged_markers: set[tuple[int, str]] = set()
 
         def _prepare_inputs(self, inputs):
-            prepared = super()._prepare_inputs(inputs)
-            phase = "train" if self.model.training else "eval"
+            # Gradient checkpointing disables KV cache while the model is in train mode.
+            # Rollouts and reference log-probs need no gradients, so use eval mode here;
+            # this restores cached autoregressive generation and removes dropout noise.
+            was_training = self.model.training
+            self.model.eval()
+            try:
+                prepared = super()._prepare_inputs(inputs)
+            finally:
+                if was_training:
+                    self.model.train()
+            phase = "train" if was_training else "eval"
             marker = (self.state.global_step, phase)
             should_log = (
                 self.accelerator.is_main_process
@@ -227,7 +236,7 @@ def main() -> None:
         )
     trainer.generation_config.remove_invalid_values = True
     trainer.generation_config.renormalize_logits = True
-    trainer.generation_config.use_cache = False
+    trainer.generation_config.use_cache = True
 
     class JsonlMetricsCallback(TrainerCallback):
         """Persist every train and validation metric while the run is active."""

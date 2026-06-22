@@ -173,6 +173,8 @@ python scripts/train_grpo.py \
 
 配置默认每题 4 个 generation、4 个 micro-batch 梯度累积、FP32 LoRA、显式 `beta=0.04`。
 如果 T4 显存不足，先将 `num_generations` 降到 2；不要用缩短数据或更改测试集掩盖 OOM。
+训练器只在无梯度 rollout 阶段临时切换到 eval mode 并启用 KV cache，随后恢复 train mode；
+否则 gradient checkpointing 会让 T4 的逐 token 生成慢一个数量级。
 
 ## 训练监控
 
