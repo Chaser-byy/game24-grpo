@@ -1,7 +1,9 @@
-"""Verify Game of 24 arithmetic expressions."""
+"""Strict, deterministic verification for arithmetic RLVR tasks."""
 
 import ast
 import operator
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -11,20 +13,28 @@ OPERATORS = {
     ast.Mult: operator.mul,
     ast.Div: operator.truediv,
 }
+ALLOWED_CHARACTERS = re.compile(r"[0-9+\-*/()\s]+")
+MAX_EXPRESSION_LENGTH = 256
+MAX_AST_NODES = 64
 
 
-@dataclass
+@dataclass(frozen=True)
 class VerificationResult:
-    """Useful details from checking one expression."""
+    """Diagnostics from checking one arithmetic expression."""
 
     valid: bool
     used_numbers: list[int]
     value: Fraction | None
     reason: str
+    syntax_valid: bool = False
+    numbers_valid: bool = False
+    target_valid: bool = False
 
 
 def _evaluate(node: ast.AST) -> tuple[Fraction, list[int]]:
     if isinstance(node, ast.Constant) and type(node.value) is int:
+        if node.value < 0:
+            raise ValueError("integer literals must be non-negative")
         return Fraction(node.value), [node.value]
     if isinstance(node, ast.BinOp) and type(node.op) in OPERATORS:
         left, left_numbers = _evaluate(node.left)
@@ -33,33 +43,49 @@ def _evaluate(node: ast.AST) -> tuple[Fraction, list[int]]:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
         value, numbers = _evaluate(node.operand)
         return (-value if isinstance(node.op, ast.USub) else value), numbers
-    raise ValueError("only numbers and +, -, *, / are allowed")
+    raise ValueError("only integers and +, -, *, /, parentheses are allowed")
 
 
 def check_expression(
-    expression: str, numbers: tuple[int, int, int, int]
+    expression: str,
+    numbers: Sequence[int],
+    target: int = 24,
+    *,
+    tolerance: float = 1e-6,
 ) -> VerificationResult:
-    """Check an expression and return details useful for debugging."""
+    """Check characters, syntax, number multiset, and target value in that order."""
+
+    if not expression or len(expression) > MAX_EXPRESSION_LENGTH:
+        return VerificationResult(False, [], None, "expression is empty or too long")
+    if ALLOWED_CHARACTERS.fullmatch(expression) is None:
+        return VerificationResult(False, [], None, "expression contains forbidden characters")
 
     try:
         tree = ast.parse(expression, mode="eval")
+        if sum(1 for _ in ast.walk(tree)) > MAX_AST_NODES:
+            raise ValueError("expression is too complex")
         value, used_numbers = _evaluate(tree.body)
     except SyntaxError:
         return VerificationResult(False, [], None, "invalid expression syntax")
     except ZeroDivisionError:
         return VerificationResult(False, [], None, "division by zero")
-    except ValueError as error:
+    except (RecursionError, ValueError) as error:
         return VerificationResult(False, [], None, str(error))
 
-    if sorted(used_numbers) != sorted(numbers):
-        reason = f"expected numbers {sorted(numbers)}, but used {sorted(used_numbers)}"
-        return VerificationResult(False, used_numbers, value, reason)
-    if value != 24:
-        return VerificationResult(False, used_numbers, value, f"expression equals {value}, not 24")
-    return VerificationResult(True, used_numbers, value, "ok")
+    expected = sorted(int(number) for number in numbers)
+    numbers_valid = sorted(used_numbers) == expected
+    if not numbers_valid:
+        reason = f"expected numbers {expected}, but used {sorted(used_numbers)}"
+        return VerificationResult(False, used_numbers, value, reason, True, False, False)
+
+    target_valid = abs(float(value) - float(target)) <= tolerance
+    if not target_valid:
+        reason = f"expression equals {value}, not {target}"
+        return VerificationResult(False, used_numbers, value, reason, True, True, False)
+    return VerificationResult(True, used_numbers, value, "ok", True, True, True)
 
 
-def verify_expression(expression: str, numbers: tuple[int, int, int, int]) -> bool:
-    """Return whether an expression uses the given numbers once and equals 24."""
+def verify_expression(expression: str, numbers: Sequence[int], target: int = 24) -> bool:
+    """Return whether an expression uses every number once and reaches the target."""
 
-    return check_expression(expression, numbers).valid
+    return check_expression(expression, numbers, target).valid

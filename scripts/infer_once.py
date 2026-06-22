@@ -4,8 +4,8 @@
 import argparse
 
 from game24.inference import generate_response, load_qwen
-from game24.parser import extract_answer
-from game24.rewards import compute_reward
+from game24.parser import parse_response
+from game24.rewards import score_response
 from game24.verifier import VerificationResult, check_expression
 
 
@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
         help="Four integers between 1 and 13",
     )
     parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--target", type=int, default=24)
     parser.add_argument(
         "--sample",
         action="store_true",
@@ -44,16 +45,18 @@ def main() -> None:
         tokenizer,
         model,
         numbers,
+        args.target,
         max_new_tokens=args.max_new_tokens,
         sample=args.sample,
     )
 
-    expression = extract_answer(response)
+    parsed = parse_response(response)
+    expression = parsed.answer
     if expression is None:
         result = VerificationResult(False, [], None, "missing or empty <answer> tag")
     else:
-        result = check_expression(expression, numbers)
-    reward = compute_reward(expression, numbers)
+        result = check_expression(expression, numbers, args.target)
+    reward = score_response(response, numbers, args.target, True)
 
     print("Numbers:", numbers)
     print("Model response:\n", response)
@@ -62,7 +65,8 @@ def main() -> None:
     print("Value:", result.value)
     print("Valid:", result.valid)
     print("Reason:", result.reason)
-    print("Reward:", reward)
+    print("Strict format:", parsed.valid_format)
+    print("Reward:", reward.total, reward)
 
 
 if __name__ == "__main__":

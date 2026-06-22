@@ -1,78 +1,185 @@
-"""Small tests for the course project's core pipeline."""
+"""Tests for strict arithmetic RLVR data, rewards, and experiment splits."""
 
+import json
 from pathlib import Path
 
 import pytest
 
-from game24.data import Game24Example, load_jsonl, save_jsonl
-from game24.parser import extract_answer
+from game24.data import (
+    Game24Example,
+    dataset_fingerprint,
+    deduplicate,
+    load_jsonl,
+    normalize_record,
+    save_jsonl,
+)
+from game24.evaluation import _score_attempt, _wilson_interval
+from game24.grpo_rewards import (
+    correctness_reward,
+    number_usage_reward,
+    strict_format_reward,
+    syntax_reward,
+)
+from game24.parser import extract_answer, parse_response
 from game24.prompts import build_prompt
-from game24.rewards import compute_reward
+from game24.rewards import compute_reward, score_response
+from game24.solver import find_solution, is_solvable
+from game24.splits import build_game24_splits
 from game24.verifier import check_expression, verify_expression
-from scripts.train_grpo import correctness_reward, extraction_reward, number_usage_reward
 
 
-def test_jsonl_round_trip(tmp_path: Path) -> None:
+def response(answer: str, think: str = "I checked all numbers and the target.") -> str:
+    return f"<think>{think}</think><answer>{answer}</answer>"
+
+
+def test_jsonl_round_trip_and_fingerprint(tmp_path: Path) -> None:
     examples = [Game24Example("demo", (1, 3, 4, 6), True)]
     path = tmp_path / "data.jsonl"
     save_jsonl(examples, path)
     assert load_jsonl(path) == examples
+    assert dataset_fingerprint(examples) == dataset_fingerprint(load_jsonl(path))
 
 
-def test_answer_extraction_and_verification() -> None:
-    response = "<think>some reasoning</think><answer>6 / (1 - 3 / 4)</answer>"
-    answer = extract_answer(response)
-    assert answer == "6 / (1 - 3 / 4)"
-    assert verify_expression(answer, (1, 3, 4, 6))
+def test_strict_response_protocol() -> None:
+    valid = response("6/(1-3/4)")
+    parsed = parse_response(valid)
+    assert parsed.valid_format
+    assert parsed.answer == "6/(1-3/4)"
+    assert extract_answer(valid) == "6/(1-3/4)"
 
-    answer_with_result = extract_answer("<answer>6 / (1 - 3 / 4) = 24</answer>")
-    assert answer_with_result == "6 / (1 - 3 / 4)"
-    assert verify_expression(answer_with_result, (1, 3, 4, 6))
-    assert extract_answer("<answer>6 * 4 = 23</answer>") == "6 * 4 = 23"
-
-
-def test_wrong_expressions_fail() -> None:
-    assert not verify_expression("6 * 4", (1, 3, 4, 6))
-    assert not verify_expression("__import__('os').getcwd()", (1, 3, 4, 6))
-    assert not verify_expression("1 / (3 - 3)", (1, 3, 3, 4))
-
-    result = check_expression("6 * 4", (1, 3, 4, 6))
-    assert result.used_numbers == [6, 4]
-    assert result.value == 24
-    assert "expected numbers" in result.reason
+    assert not parse_response("<answer>6/(1-3/4)</answer>").valid_format
+    assert not parse_response(f"junk {valid}").valid_format
+    assert not parse_response(valid + " trailing").valid_format
+    assert not parse_response("<think></think><answer>1+2</answer>").valid_format
+    assert extract_answer(f"junk {valid}", strict=False) == "6/(1-3/4)"
 
 
-def test_minimal_pipeline_reward() -> None:
-    example = Game24Example("demo", (1, 3, 4, 6))
-    prompt = build_prompt(example.numbers)
-    assert "1, 3, 4, 6" in prompt
-    assert "<think>" in prompt and "</think>" in prompt
-    assert "<answer>" in prompt and "</answer>" in prompt
-    assert "think:" not in prompt and "answer:" not in prompt
-    assert "one short sentence with your check" not in prompt
-    assert "never replace, omit, or invent a number" in prompt
-    answer = extract_answer("<answer>6/(1-3/4)</answer>")
-    assert compute_reward(answer, example.numbers) == 1.0
-    assert compute_reward(None, example.numbers) == 0.0
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "0xD+6+4+1",
+        "1_3+6+4+1",
+        "13+6+4+1 # comment",
+        "13+6+4+1.0",
+        "__import__('os').getcwd()",
+        "13+6+4+1=24",
+    ],
+)
+def test_verifier_rejects_forbidden_lexical_forms(expression: str) -> None:
+    result = check_expression(expression, (1, 4, 6, 13))
+    assert not result.valid
+    assert not result.syntax_valid
 
 
-def test_grpo_shaped_rewards() -> None:
-    completions = [
-        "<answer>1 + 3</answer>",
-        "<answer>(1 + 3) * 4 + 6</answer>",
-        "no answer tag",
-    ]
+def test_exact_expression_verification_and_diagnostics() -> None:
+    assert verify_expression("6/(1-3/4)", (1, 3, 4, 6))
+    assert verify_expression("(7-1)*4", (1, 4, 7), target=24)
+    assert not verify_expression("6*4", (1, 3, 4, 6))
+    assert not verify_expression("1/(3-3)", (1, 3, 3, 4))
+
+    wrong_numbers = check_expression("6*4", (1, 3, 4, 6))
+    assert wrong_numbers.syntax_valid
+    assert not wrong_numbers.numbers_valid
+    assert wrong_numbers.value == 24
+
+    wrong_target = check_expression("(1+3)*4+6", (1, 3, 4, 6))
+    assert wrong_target.syntax_valid and wrong_target.numbers_valid
+    assert not wrong_target.target_valid
+
+
+def test_reward_breakdown_is_strict_and_binary() -> None:
+    correct = score_response(response("6/(1-3/4)"), (1, 3, 4, 6))
+    assert correct.total == pytest.approx(1.4)
+    assert correct.correctness == 1.0
+
+    wrong = score_response(response("(1+3)*4+6"), (1, 3, 4, 6))
+    assert wrong.total == pytest.approx(0.4)
+    assert wrong.correctness == 0.0
+    assert score_response("<answer>6/(1-3/4)</answer>", (1, 3, 4, 6)).total == 0.0
+    assert compute_reward("6/(1-3/4)", (1, 3, 4, 6)) == 1.0
+
+
+def test_unsolvable_abstention_reward() -> None:
+    abstention = score_response(response("UNSOLVABLE"), (1, 1, 1, 1), solvable=False)
+    assert abstention.correctness == 1.0
+    assert abstention.total == pytest.approx(1.1)
+    assert score_response(response("UNSOLVABLE"), (1, 3, 4, 6), solvable=True).correctness == 0.0
+
+
+def test_unsolvable_evaluation_distinguishes_abstention_and_false_claim() -> None:
+    example = Game24Example("none", (1, 1, 1, 1), False)
+    abstention = _score_attempt(response("UNSOLVABLE"), example)
+    claim = _score_attempt(response("(1+1+1+1)"), example)
+    malformed_claim = _score_attempt("junk <answer>1+1+1+1</answer>", example)
+    assert abstention["correct"] and not abstention["claimed_solution"]
+    assert not claim["correct"] and claim["claimed_solution"]
+    assert not malformed_claim["format_valid"] and malformed_claim["claimed_solution"]
+    assert _wilson_interval(50, 100) == pytest.approx([0.4038315, 0.5961685])
+
+
+def test_trl_reward_functions_share_the_strict_scorer() -> None:
+    completions = [response("6/(1-3/4)"), response("(1+3)*4+6"), "no tags"]
     numbers = [[1, 3, 4, 6]] * 3
+    target = [24] * 3
+    solvable = [True] * 3
+    kwargs = {"numbers": numbers, "target": target, "solvable": solvable}
+    assert strict_format_reward(completions, **kwargs) == [0.1, 0.1, 0.0]
+    assert syntax_reward(completions, **kwargs) == [0.1, 0.1, 0.0]
+    assert number_usage_reward(completions, **kwargs) == [0.2, 0.2, 0.0]
+    assert correctness_reward(completions, **kwargs) == [1.0, 0.0, 0.0]
 
-    assert extraction_reward(completions) == [0.1, 0.1, 0.0]
-    assert number_usage_reward(completions, numbers) == [0.1, 0.3, 0.0]
 
-    close_answers = [
-        "<answer>(6 - 1) * 4 + 3</answer>",
-        "<answer>6 / (1 - 3 / 4)</answer>",
-        "<answer>6 * 4</answer>",
+def test_exact_solver() -> None:
+    solution = find_solution((1, 3, 4, 6))
+    assert solution is not None
+    assert verify_expression(solution, (1, 3, 4, 6))
+    assert not is_solvable((1, 1, 1, 1))
+
+
+def test_dynamic_countdown_normalization_and_deduplication() -> None:
+    first = normalize_record(
+        {"nums": [2, 3, 7], "target": 23},
+        0,
+        "Jiayi-Pan/Countdown-Tasks-3to4",
+    )
+    second = normalize_record(
+        {"nums": [2, 3, 7], "target": 24},
+        1,
+        "Jiayi-Pan/Countdown-Tasks-3to4",
+    )
+    assert first.task_type == "countdown" and first.target == 23
+    assert len(deduplicate([first, first, second])) == 2
+
+
+def test_tot_slice_is_zero_based_half_open_and_leakage_free() -> None:
+    ranked = [
+        Game24Example(f"rank:{index + 1}", numbers, True, rank=index + 1)
+        for index, numbers in enumerate([(1, 1, 1, 8), (1, 1, 2, 6), (1, 1, 3, 8), (1, 1, 4, 6)])
     ]
-    rewards = correctness_reward(close_answers, numbers)
-    assert rewards[0] == pytest.approx(0.2 * 23 / 24)
-    assert rewards[1] == 1.0
-    assert rewards[2] == 0.0
+    training = ranked + [Game24Example("extra", (1, 2, 3, 4), True)]
+    splits, manifest = build_game24_splits(
+        training,
+        ranked,
+        test_start=1,
+        test_end=3,
+        validation_size=1,
+        seed=7,
+    )
+    assert [item.rank for item in splits["test_hard"]] == [2, 3]
+    assert len(splits["train_full"]) == 3
+    assert len(splits["train"]) == 2
+    assert manifest["test_slice"]["semantics"] == "python [start:end)"
+
+
+def test_prompt_supports_fixed_and_dynamic_targets() -> None:
+    prompt = build_prompt((1, 3, 4, 6), 24)
+    assert "target 24" in prompt
+    assert "[1, 3, 4, 6]" in prompt
+    assert "<think>" in prompt and "<answer>" in prompt
+    assert "UNSOLVABLE" in prompt
+    assert "equals sign" in prompt
+
+
+def test_manifest_json_shape_is_serializable() -> None:
+    example = Game24Example("demo", (1, 3, 4, 6), True)
+    assert json.dumps({"fingerprint": dataset_fingerprint([example])})

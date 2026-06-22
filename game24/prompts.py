@@ -1,19 +1,29 @@
-"""Prompt construction for the Game of 24 task."""
+"""Prompt construction for Game24 and Countdown-style arithmetic tasks."""
+
+from collections.abc import Sequence
 
 
-def build_prompt(numbers: tuple[int, int, int, int]) -> str:
-    """Build the instruction passed to the chat model."""
+def build_prompt(
+    numbers: Sequence[int],
+    target: int = 24,
+    *,
+    allow_unsolvable: bool = True,
+) -> str:
+    """Build the common strict RLVR prompt."""
 
     values = ", ".join(map(str, numbers))
-    return f"""Solve the Game24 puzzle with the numbers [{values}].
-Use every given number exactly once. Use only +, -, *, / and parentheses.
-Copy the four input integers exactly; never replace, omit, or invent a number.
-Before answering, verify the number usage and that the expression equals 24.
+    unsolvable_rule = (
+        "If and only if no legal expression exists, write UNSOLVABLE in the answer tag."
+        if allow_unsolvable
+        else "A legal solution exists; do not answer UNSOLVABLE."
+    )
+    return f"""Reach the target {target} using exactly the numbers [{values}].
+Use every input number exactly once. Use only +, -, *, / and parentheses.
+Do not concatenate digits, introduce constants, or use an equals sign.
+{unsolvable_rule}
 
-Your response must follow this XML protocol:
-- Start with the literal tag <think>, write one brief verification sentence, then close </think>.
-- Immediately open <answer>, write only the arithmetic expression, then close </answer>.
+Return exactly this XML structure and nothing else:
+<think>Reason through candidate operations and verify the final result.</think>
+<answer>one arithmetic expression, or UNSOLVABLE</answer>
 
-The response must begin with <think> and end with </answer>. Write nothing outside the tags.
-Do not copy these instructions or add an equals sign.
-Keep the entire response under 40 words."""
+Keep the reasoning focused, but include enough detail to check every number and the target."""

@@ -1,284 +1,274 @@
-# 基于 GRPO 的 24 点游戏求解
+# 基于严格 RLVR/GRPO 的 24 点求解
 
-课程项目目标：使用 Qwen2.5-1.5B-Instruct 和规则奖励训练模型解决 24 点。项目采用
-LoRA + TRL GRPO，面向单张 NVIDIA T4 16GB，不包含 SFT、DeepSpeed、vLLM 或多卡训练。
+本分支提供一套面向课程正式实验的实现：使用 Qwen2.5-1.5B-Instruct、TRL GRPO 和
+LoRA，在无需奖励模型的情况下学习 24 点及 Countdown 动态目标算术。
 
-```text
-本地数据 -> Prompt -> Qwen 生成 -> 答案提取 -> 规则验证/奖励
-        -> GRPO + LoRA -> 评测 -> 图表
-```
+核心原则：
 
-## 主要文件
+- 最终正确性是严格的 `0/1` 可验证奖励，不使用“接近 24”奖励。
+- 所有训练和评测共用“字符白名单 + AST + Fraction”验证器。
+- 完整响应必须匹配 `<think>...</think><answer>...</answer>`。
+- ToT 的 `indices 900:1000` 使用 Python 半开区间，恰好留出 100 道。
+- baseline 与训练后模型必须在相同数据指纹上比较。
+- 训练期间记录 reward、严格成功率、reward std、KL、completion length 和生成样本。
+
+## 算法来源与边界
+
+本实现采用以下思想：
+
+- **DeepSeekMath / GRPO**：同一 prompt 采样一组 completion，使用组内相对奖励优化，
+  并通过参考策略 KL 约束更新。
+- **DeepSeek-R1 / RLVR**：使用无需奖励模型的规则奖励和 `<think>/<answer>` 输出协议。
+- **TinyZero**：借鉴动态目标算术数据、规则验证、长推理、定期验证和定性 completion
+  检查；没有复制其 veRL/Ray/vLLM 系统。
+- **Tree of Thoughts**：使用其官方困难数据切片作为评测；当前训练和推理不是 ToT 搜索。
+- **Logic-RL / open-r1**：借鉴格式奖励、结果奖励拆分和可复现实验组织。
+
+GRPO 的张量级实现来自固定版本 `trl==0.15.2`。项目代码负责数据、prompt、奖励、验证、
+监控和实验协议，不声称重新实现 TRL 内部优化器。
+
+## 项目结构
 
 ```text
 game24/
-  data.py             # JSONL、原始数据规范化、去重
-  prompts.py          # 24 点 Prompt
-  parser.py           # 提取 <answer>
-  verifier.py         # 数字和算术验证
-  rewards.py          # 0/1 正确性奖励
-  inference.py        # Qwen/LoRA 加载与生成
-  evaluation.py       # 可复用批量评测
+  data.py             # Game24/Countdown 统一数据模型与数据指纹
+  parser.py           # 严格 R1 XML 响应解析
+  verifier.py         # 字符白名单、AST、Fraction 精确验证
+  rewards.py          # 共享奖励分解
+  grpo_rewards.py     # TRL reward function 适配
+  solver.py           # 无解题构造使用的精确动态规划求解器
+  splits.py           # ToT 留出与无泄漏划分
+  inference.py        # Qwen/LoRA 生成和多候选采样
+  evaluation.py       # accuracy@1、pass@k、难度和无解评测
 scripts/
-  download_model.py   # 从 ModelScope 下载 Qwen
-  download_data.py    # 从 ModelScope/Hugging Face 下载数据
-  prepare_data.py     # 准备外部测试集
-  prepare_train_data.py # 准备 train/validation/unsolvable
-  evaluate_baseline.py  # 基线或 LoRA 评测
-  train_grpo.py         # 单卡 LoRA GRPO
-  plot_results.py       # 报告图表
+  prepare_experiment_data.py # 正式 Game24 数据协议
+  prepare_countdown_data.py  # Countdown OOD 扩展
+  train_grpo.py              # 单 GPU LoRA-GRPO
+  evaluate_baseline.py       # 基线/adapter 统一评测
+  plot_results.py            # 训练曲线和同集前后对比
+  summarize_experiments.py   # ID/OOD/无解结果汇总
+configs/t4_grpo.json         # 单张 T4 的稳定配置
 ```
 
-## 1. 持久化环境
+## 环境
 
-模型、数据、虚拟环境和输出都放在 `/home/ma-user/work`，避免 Notebook 重启后丢失：
-
-```text
-/home/ma-user/work/
-  game24-grpo/
-  models/Qwen2.5-1.5B-Instruct/
-  data/game24.csv
-  data/nlile_24_game.csv
-  venvs/game24/
-```
-
-目标环境为 Python 3.10、PyTorch 2.1.0 + CUDA 11.8、Transformers 4.46.3。
-项目不会主动安装或替换 PyTorch：
+推荐 Python 3.10、PyTorch 2.1 + CUDA 11.8 和单张 NVIDIA T4 16GB：
 
 ```bash
+python -m venv /home/ma-user/work/venvs/game24
 source /home/ma-user/work/venvs/game24/bin/activate
-cd /home/ma-user/work/game24-grpo
 pip install -e ".[grpo,analysis]"
-
-python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-## 2. 准备本地模型
-
-华为云能访问 ModelScope 时：
+项目不主动安装或替换 PyTorch。模型建议放在持久化路径：
 
 ```bash
-pip install -e ".[download]"
 python scripts/download_model.py \
   --model-id Qwen/Qwen2.5-1.5B-Instruct \
   --output-dir /home/ma-user/work/models/Qwen2.5-1.5B-Instruct
 ```
 
-若 ModelScope 也不可访问，在其他联网机器下载模型，通过 OBS 或浏览器上传到上述目录。
-训练、评测命令都使用本地模型路径，不依赖 Hugging Face Hub。
+## 正式数据协议
 
-## 3. 准备数据
+当前官方 `nlile/24-game` 和 ToT CSV 含相同的 1362 个数字组合，只是排序不同。因此不能
+把一个完整数据集训练后再把另一个完整数据集称作 OOD 测试，也不能删除“整个外部测试集”
+的重叠，否则训练集会为空。
 
-华为云优先从 ModelScope 下载可用于 GRPO 的 1000 条 24 点训练题：
+本项目采用：
 
-```bash
-python scripts/download_data.py \
-  --provider modelscope \
-  --dataset cqupthzr/game24 \
-  --output /home/ma-user/work/data/game24_train.jsonl
-```
+1. ToT 零基索引 `[900:1000)` 作为 100 道未见困难测试。
+2. 从 nlile 删除这 100 个组合，得到 `train_full=1262`。
+3. 调参阶段从 1262 中固定抽取 100 道 ID validation，剩余 `train=1162`。
+4. 超参数确定后可用 `train_full=1262` 重新训练，最终只评测困难留出集。
+5. `1..13` 有重复四数组合共 1820 个；精确求解得到 1362 个可解、458 个无解，固定
+   随机抽取其中 100 道作为无解测试。
 
-该数据集字段为 `nums` 和 `target`，脚本会补充 `solvable=true` 和数据来源。它适合完成
-最小训练闭环，但不是课程指定 `nlile/24-game` 的同名镜像。ModelScope 下载使用公开 API，
-不依赖 `modelscope.msdatasets` 子模块。若某台机器能访问 Hugging Face，可下载课程指定数据：
-
-```bash
-python scripts/download_data.py \
-  --provider huggingface \
-  --dataset nlile/24-game \
-  --endpoint https://huggingface.co \
-  --output /home/ma-user/work/data/nlile_24_game.jsonl
-```
-
-下载脚本只保存原始 JSONL，不会自动启动训练。若所有数据源都不可访问，请在其他联网机器
-运行后通过 OBS 或浏览器上传文件。
-
-将 ModelScope 数据划分为训练和验证集，用于确认训练闭环：
+准备本地原始文件后运行：
 
 ```bash
-python scripts/prepare_train_data.py \
-  --input-file /home/ma-user/work/data/game24_train.jsonl \
-  --source cqupthzr/game24 \
+python scripts/prepare_experiment_data.py \
+  --training-file /home/ma-user/work/data/nlile_24_game.jsonl \
+  --ranked-file /home/ma-user/work/data/24.csv \
   --output-dir data/processed \
-  --val-ratio 0.1 \
+  --test-start 900 \
+  --test-end 1000 \
+  --validation-size 100 \
+  --unsolvable-size 100 \
   --seed 42
 ```
 
-这批数据可能与下面的外部测试集重叠，因此不要用它在同一测试集上的结果作为正式报告指标。
-
-先将 `test-time-compute/game-of-24` 的本地 CSV 转为统一测试集：
-
-```bash
-python scripts/prepare_data.py \
-  --input-file /home/ma-user/work/data/game24.csv \
-  --dataset test-time-compute/game-of-24 \
-  --output data/processed/test.jsonl
-```
-
-正式实验使用 `nlile/24-game` 时，划分训练、验证和无解测试集，并排除与外部测试集重复
-的数字组合：
-
-```bash
-python scripts/prepare_train_data.py \
-  --input-file /home/ma-user/work/data/nlile_24_game.jsonl \
-  --source nlile/24-game \
-  --output-dir data/processed \
-  --val-ratio 0.1 \
-  --seed 42 \
-  --test-file data/processed/test.jsonl
-```
-
-生成：
+期望输出：
 
 ```text
-data/processed/train.jsonl
-data/processed/validation.jsonl
-data/processed/unsolvable_test.jsonl
-data/processed/test.jsonl
+train.jsonl             1162  调参训练
+validation_id.jsonl      100  周期验证
+train_full.jsonl        1262  最终训练
+test_hard.jsonl          100  唯一正式 Game24 困难测试
+test_unsolvable.jsonl    100  瞎编/拒答测试
+manifest.json                  数量、来源、切片和指纹
 ```
 
-## 4. 训练前基线
+## 基线
+
+所有前后对比必须使用相同的 `test_hard.jsonl`：
 
 ```bash
 python scripts/evaluate_baseline.py \
   --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
-  --data data/processed/test.jsonl \
-  --limit 20 \
-  --output outputs/baseline_20.jsonl
+  --data data/processed/test_hard.jsonl \
+  --output outputs/baseline_hard.jsonl \
+  --num-samples 1
 ```
 
-输出明细和 `outputs/baseline_20.summary.json`。
+可额外测 stochastic pass@8：
 
-## 5. 两步 Smoke Training
+```bash
+python scripts/evaluate_baseline.py \
+  --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
+  --data data/processed/test_hard.jsonl \
+  --output outputs/baseline_hard_pass8.jsonl \
+  --num-samples 8 \
+  --sample
+```
 
-先用最小任务确认 CUDA、TRL、LoRA、生成和奖励都能运行：
+## 两阶段训练
+
+先做两步硬件 smoke test：
 
 ```bash
 python scripts/train_grpo.py \
+  --config configs/t4_grpo.json \
   --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
   --data data/processed/train.jsonl \
-  --eval-data data/processed/validation.jsonl \
-  --output outputs/grpo_2step \
-  --limit 8 \
-  --max-steps 2 \
-  --num-generations 2 \
-  --max-completion-length 128 \
-  --eval-limit 5 \
-  --run-eval
-```
-
-训练启动时会打印 Python、PyTorch、CUDA、Transformers、TRL、PEFT、GPU 和显存信息。
-当前 PyTorch 2.1/T4 环境的 FP16 GRPO log-prob/KL 会出现 NaN，因此最小闭环默认使用
-稳定的 FP32 LoRA 训练；基础模型被冻结，不会创建完整梯度和优化器状态。采样前还会清理并
-重新归一化偶发的无效 logits。FP32 速度较慢，但优先保证课程实验能够正确更新参数。
-
-## 6. 20 步最小闭环
-
-```bash
-python scripts/train_grpo.py \
-  --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
-  --data data/processed/train.jsonl \
-  --eval-data data/processed/validation.jsonl \
+  --eval-data data/processed/validation_id.jsonl \
   --output outputs/grpo_smoke \
-  --limit 20 \
-  --max-steps 20 \
-  --run-eval
+  --limit 16 \
+  --eval-limit 8 \
+  --max-steps 2
 ```
 
-默认每个 Prompt 生成 2 个回答、最大生成长度 128。Prompt 使用严格的 `<think>`、
-`<answer>` XML 协议，但不再提供容易被模型照抄的占位内容；同时要求整个回复少于40词，
-减少答案标签被截断的情况。奖励分别为答案提取 `0.1`、可解析表达式 `0.1`、数字
-合法 `0.3`、正确结果 `1.0`；合法但未达到 24 的表达式还会按距离获得最高 `0.2` 的小额
-正确性分数。共享提取器会移除答案末尾常见的 `= 24`，但仍严格要求 XML 标签且不兼容
-`answer:` 自然语言格式。项目仍然只有三个奖励函数。
-
-## 7. 正式训练与续训
+调参训练使用独立 ID validation：
 
 ```bash
 python scripts/train_grpo.py \
+  --config configs/t4_grpo.json \
   --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
   --data data/processed/train.jsonl \
-  --eval-data data/processed/validation.jsonl \
-  --output outputs/grpo_full \
-  --limit 0 \
-  --max-steps 200 \
-  --learning-rate 1e-5 \
-  --num-generations 2 \
-  --max-completion-length 192 \
-  --eval-limit 0 \
-  --run-eval
+  --eval-data data/processed/validation_id.jsonl \
+  --output outputs/grpo_tune \
+  --epochs 1
 ```
 
-从已有 checkpoint 继续：
+确定超参数后使用全部 1262 道重新训练。不要再把其中的 validation 当作未见数据：
 
 ```bash
 python scripts/train_grpo.py \
+  --config configs/t4_grpo.json \
   --model /home/ma-user/work/models/Qwen2.5-1.5B-Instruct \
-  --data data/processed/train.jsonl \
-  --output outputs/grpo_full \
-  --limit 0 \
-  --max-steps 200 \
-  --resume-from-checkpoint outputs/grpo_full/checkpoint-100
+  --data data/processed/train_full.jsonl \
+  --output outputs/grpo_final \
+  --epochs 1
 ```
 
-训练目录包含 LoRA adapter、tokenizer、checkpoint、`training_args.json`、`train.log` 和
-`train_metrics.jsonl`，启用 `--run-eval` 时还包含 `eval_results.jsonl` 和
-`eval_summary.json`。训练期间终端只显示进度条；环境信息、警告、逐步指标和训练后评测文本
-实时追加到 `train.log`。结构化指标仍保存在 `train_metrics.jsonl`，用于后续绘图。
+配置默认每题 4 个 generation、4 个 micro-batch 梯度累积、FP32 LoRA、显式 `beta=0.04`。
+如果 T4 显存不足，先将 `num_generations` 降到 2；不要用缩短数据或更改测试集掩盖 OOM。
 
-## 8. 完整、困难和无解集评测
+## 训练监控
 
-完整测试集：
+每个训练目录包含：
+
+```text
+run_config.json          完整超参数和依赖信息
+train.log                运行日志
+train_metrics.jsonl      reward、正确率、KL 等实时指标
+completion_samples.jsonl 定期保存的定性生成样本
+checkpoint-*             可恢复 checkpoint
+adapter_config.json      最终 LoRA adapter
+```
+
+需要重点监控：
+
+- `rewards/correctness_reward`：严格训练 solved rate，只有 0/1。
+- `eval_rewards/correctness_reward`：周期 ID validation solved rate。
+- `reward_std`：长期接近 0 表示同组回答没有差异，GRPO 几乎没有学习信号。
+- `kl`：持续快速升高表示策略偏离基础模型，应降低学习率或增大 `beta`。
+- `completion_length`：突然顶到上限通常意味着标签截断或无效长推理。
+- `completion_samples.jsonl`：检查格式投机、重复模式和真实 self-verification。
+
+## 正式评测
+
+困难留出集 accuracy@1：
 
 ```bash
 python scripts/evaluate_baseline.py \
-  --model outputs/grpo_full \
-  --data data/processed/test.jsonl \
-  --limit 0 \
-  --output outputs/grpo_full_test.jsonl
+  --model outputs/grpo_final \
+  --data data/processed/test_hard.jsonl \
+  --output outputs/grpo_final_hard.jsonl \
+  --num-samples 1
 ```
 
-指定 rank 900–1000 的困难子集：
+无解题检查 `correct_abstention_rate` 和 `false_claim_rate`：
 
 ```bash
 python scripts/evaluate_baseline.py \
-  --model outputs/grpo_full \
-  --data data/processed/test.jsonl \
-  --rank-min 900 \
-  --rank-max 1000 \
-  --limit 0 \
-  --output outputs/grpo_hard.jsonl
+  --model outputs/grpo_final \
+  --data data/processed/test_unsolvable.jsonl \
+  --output outputs/grpo_final_unsolvable.jsonl
 ```
 
-无解集（提取率可作为强行编造答案的参考）：
-
-```bash
-python scripts/evaluate_baseline.py \
-  --model outputs/grpo_full \
-  --data data/processed/unsolvable_test.jsonl \
-  --limit 0 \
-  --output outputs/grpo_unsolvable.jsonl
-```
-
-## 9. 生成报告图表
+生成同集前后对比和训练曲线：
 
 ```bash
 python scripts/plot_results.py \
-  --train-metrics outputs/grpo_full/train_metrics.jsonl \
-  --baseline-summary outputs/baseline_20.summary.json \
-  --grpo-summary outputs/grpo_full/eval_summary.json \
-  --output-dir outputs/grpo_full/figures
+  --train-metrics outputs/grpo_tune/train_metrics.jsonl \
+  --baseline-summary outputs/baseline_hard.summary.json \
+  --grpo-summary outputs/grpo_final_hard.summary.json \
+  --output-dir outputs/report_figures
 ```
 
-生成 reward、分项 reward、loss、训练前后对比 PNG，以及 `comparison_metrics.csv`。
+脚本会验证两个 summary 的 `dataset_fingerprint`；不同测试集会直接报错。
 
-## 本地检查
+## Countdown 任务 OOD
 
-本地没有模型和 GPU 时只运行：
+从本地 `Jiayi-Pan/Countdown-Tasks-3to4` 文件构造动态目标数据：
+
+```bash
+python scripts/prepare_countdown_data.py \
+  --input-file /home/ma-user/work/data/countdown_3to4.jsonl \
+  --output-dir data/processed/countdown \
+  --validation-size 1024
+```
+
+零样本任务 OOD 评测：
+
+```bash
+python scripts/evaluate_baseline.py \
+  --model outputs/grpo_final \
+  --data data/processed/countdown/validation_ood.jsonl \
+  --output outputs/grpo_final_countdown_ood.jsonl
+```
+
+也可以把 Countdown 训练数据作为第二个 `--data` 输入做多任务 GRPO；报告中必须将纯 Game24
+和加入 Countdown 的结果分开，避免把额外训练数据带来的提升归因于算法。
+
+## 本地验证
+
+无模型/GPU 时运行：
 
 ```bash
 pip install -e ".[dev]"
 python scripts/smoke_test.py
-pytest -q
+python -m pytest -q
 ruff check .
 ```
+
+## 参考
+
+- DeepSeekMath, arXiv:2402.03300
+- DeepSeek-R1, arXiv:2501.12948
+- Tree of Thoughts, arXiv:2305.10601
+- Logic-RL, arXiv:2502.14768
+- TinyZero: https://github.com/Jiayi-Pan/TinyZero
+- TRL GRPO Trainer: https://huggingface.co/docs/trl/v0.15.2/grpo_trainer
+- open-r1: https://github.com/huggingface/open-r1

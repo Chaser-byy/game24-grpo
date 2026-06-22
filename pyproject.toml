@@ -16,6 +16,8 @@ dev = [
     "ruff",
 ]
 inference = [
+    "accelerate==1.2.1",
+    "peft==0.14.0",
     "transformers==4.46.3",
 ]
 data = [

@@ -32,7 +32,7 @@ def series(records: list[dict[str, Any]], key: str) -> tuple[list[float], list[f
 
 
 def metric_label(key: str) -> str:
-    name = key.removeprefix("rewards/").removesuffix("/mean")
+    name = key.removeprefix("eval_").removeprefix("rewards/").removesuffix("/mean")
     return name.replace("_", " ").title()
 
 
@@ -62,7 +62,7 @@ def main() -> None:
                 key
                 for record in records
                 for key, value in record.items()
-                if key.startswith("rewards/")
+                if key.startswith(("rewards/", "eval_rewards/"))
                 and "std" not in key
                 and isinstance(value, (int, float))
                 and key not in reward_keys
@@ -76,6 +76,8 @@ def main() -> None:
             steps, values = series(records, key)
             if values:
                 label = "Total Reward" if key in {"reward", "total_reward"} else metric_label(key)
+                if key.startswith("eval_"):
+                    label = f"Validation {label}"
                 plt.plot(steps, values, marker="o", markersize=3, label=label)
         plt.title("GRPO Training Rewards")
         plt.xlabel("Training Step")
@@ -87,6 +89,46 @@ def main() -> None:
         plt.close()
     else:
         print("Skipping reward plot: no reward metrics found")
+
+    success_keys = [
+        key
+        for key in ("rewards/correctness_reward", "eval_rewards/correctness_reward")
+        if any(isinstance(record.get(key), (int, float)) for record in records)
+    ]
+    if success_keys:
+        plt.figure(figsize=(8, 5))
+        for key in success_keys:
+            steps, values = series(records, key)
+            label = "Validation Solved Rate" if key.startswith("eval_") else "Train Solved Rate"
+            plt.plot(steps, values, marker="o", markersize=3, label=label)
+        plt.ylim(-0.02, 1.02)
+        plt.title("Strict Verifiable Success Rate")
+        plt.xlabel("Training Step")
+        plt.ylabel("Rate")
+        plt.grid(alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(output_dir / "training_success_rate.png", dpi=200)
+        plt.close()
+
+    diagnostic_keys = [
+        key
+        for key in ("reward_std", "kl", "completion_length")
+        if any(isinstance(record.get(key), (int, float)) for record in records)
+    ]
+    if diagnostic_keys:
+        figure, axes = plt.subplots(len(diagnostic_keys), 1, figsize=(8, 3 * len(diagnostic_keys)))
+        if len(diagnostic_keys) == 1:
+            axes = [axes]
+        for axis, key in zip(axes, diagnostic_keys, strict=True):
+            steps, values = series(records, key)
+            axis.plot(steps, values, color="tab:purple")
+            axis.set_title(metric_label(key))
+            axis.set_xlabel("Training Step")
+            axis.grid(alpha=0.3)
+        figure.tight_layout()
+        figure.savefig(output_dir / "training_diagnostics.png", dpi=200)
+        plt.close(figure)
 
     loss_steps, loss_values = series(records, "loss")
     if loss_values:
@@ -104,21 +146,23 @@ def main() -> None:
 
     baseline = json.loads(Path(args.baseline_summary).read_text(encoding="utf-8"))
     grpo = json.loads(Path(args.grpo_summary).read_text(encoding="utf-8"))
+    if baseline.get("dataset_fingerprint") != grpo.get("dataset_fingerprint"):
+        raise SystemExit(
+            "baseline and GRPO summaries use different evaluation populations; "
+            "refusing to create a misleading comparison"
+        )
     comparison_fields = [
-        ("accuracy", "Accuracy"),
-        ("extraction_rate", "Extraction Rate"),
-        ("legal_rate", "Legal Number Usage"),
-        ("average_reward", "Average Reward"),
+        ("accuracy_at_1", "Accuracy@1"),
+        ("strict_format_rate", "Strict Format"),
+        ("syntax_rate", "Valid Syntax"),
+        ("legal_number_rate", "Legal Numbers"),
     ]
     comparison = [
         (label, float(baseline[key]), float(grpo[key]))
         for key, label in comparison_fields
-        if isinstance(baseline.get(key), (int, float))
-        and isinstance(grpo.get(key), (int, float))
+        if isinstance(baseline.get(key), (int, float)) and isinstance(grpo.get(key), (int, float))
     ]
-    missing = [
-        key for key, _ in comparison_fields if key not in baseline or key not in grpo
-    ]
+    missing = [key for key, _ in comparison_fields if key not in baseline or key not in grpo]
     if missing:
         print(f"Skipping missing comparison metrics: {', '.join(missing)}")
 
