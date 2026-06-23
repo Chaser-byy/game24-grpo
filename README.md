@@ -99,6 +99,8 @@ python scripts/evaluate_game24.py \
   --pass_at 1 4 8
 ```
 
+For diagnostic baseline runs, add `--reward_method flexible` to ignore missing `<think>` tags while still requiring a legal `<answer>expression</answer>` expression. GRPO training keeps the strict reward by default.
+
 The evaluator reports `format_rate`, `parse_rate`, `number_use_rate`, `valid_expression_rate`, `solved_rate/pass@1`, `pass@4`, `pass@8`, `average_reward`, and `average_response_length` for `validation`, `test_id`, `test_hard`, and `test_unsolvable`. It also saves per-sample JSONL with numbers, target, model output, extracted answer, reward, correctness, error type, and split.
 
 ## GRPO Training

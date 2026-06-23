@@ -39,7 +39,10 @@ def generate_outputs(model, tokenizer, prompt, n, args):
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
-    return [tokenizer.decode(output[input_length:], skip_special_tokens=False) for output in outputs]
+    return [
+        tokenizer.decode(output[input_length:], skip_special_tokens=not args.keep_special_tokens)
+        for output in outputs
+    ]
 
 
 def summarize(split, rows, results, pass_at):
@@ -90,6 +93,8 @@ def main():
     parser.add_argument("--max_new_tokens", type=int, default=384)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top_p", type=float, default=1.0)
+    parser.add_argument("--reward_method", default="strict", choices=["strict", "flexible"])
+    parser.add_argument("--keep_special_tokens", action="store_true")
     parser.add_argument("--dtype", default="bfloat16", choices=["auto", "float16", "bfloat16", "float32"])
     parser.add_argument("--device_map", default="auto")
     parser.add_argument("--trust_remote_code", action="store_true")
@@ -125,7 +130,12 @@ def main():
             ground_truth = row["reward_model"]["ground_truth"]
             outputs = generate_outputs(model, tokenizer, prompt, max_n, args)
             for generation_index, output in enumerate(outputs):
-                details = compute_score(output, ground_truth, return_details=True)
+                details = compute_score(
+                    output,
+                    ground_truth,
+                    method=args.reward_method,
+                    return_details=True,
+                )
                 result = {
                     "split": split,
                     "index": row_index,
