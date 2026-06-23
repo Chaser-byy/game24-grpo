@@ -114,6 +114,7 @@ export OUTPUT_DIR=$PWD/checkpoints
 export N_GPUS=1
 export ROLLOUT_TP_SIZE=1
 export ROLLOUT_N=8
+export USE_REMOVE_PADDING=False
 export TRAIN_BATCH_SIZE=64
 export PPO_MINI_BATCH_SIZE=64
 export PPO_MICRO_BATCH_SIZE=8
@@ -135,6 +136,8 @@ actor_rollout_ref.rollout.temperature=1.0
 actor_rollout_ref.actor.use_kl_loss=True
 actor_rollout_ref.actor.kl_loss_coef=0.001
 ```
+
+`USE_REMOVE_PADDING=False` is the default so the single-GPU training path does not require compiling `flash-attn`. If your environment has a compatible `flash-attn` install, you can set `USE_REMOVE_PADDING=True` for the optimized path.
 
 The local development environment is not assumed to have enough GPU memory for a full run. The codebase supports data preprocessing, verifier tests, script/config checks, and small dry runs locally; full GRPO training should be run on a GPU server.
 
