@@ -29,6 +29,7 @@ MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-384}
 MAX_TOKEN_LEN_PER_GPU=${MAX_TOKEN_LEN_PER_GPU:-8192}
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.5}
 USE_REMOVE_PADDING=${USE_REMOVE_PADDING:-False}
+ATTN_IMPLEMENTATION=${ATTN_IMPLEMENTATION:-sdpa}
 
 TOTAL_EPOCHS=${TOTAL_EPOCHS:-3}
 TOTAL_TRAINING_STEPS=${TOTAL_TRAINING_STEPS:-null}
@@ -47,6 +48,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=${MAX_PROMPT_LENGTH} \
     data.max_response_length=${MAX_RESPONSE_LENGTH} \
     actor_rollout_ref.model.path=${MODEL_PATH} \
+    +actor_rollout_ref.model.attn_implementation=${ATTN_IMPLEMENTATION} \
     actor_rollout_ref.model.use_remove_padding=${USE_REMOVE_PADDING} \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr=${LEARNING_RATE} \
