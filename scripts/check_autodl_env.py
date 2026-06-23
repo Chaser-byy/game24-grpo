@@ -1,4 +1,5 @@
 import importlib
+import argparse
 import platform
 import sys
 import tempfile
@@ -30,9 +31,16 @@ def ok(message):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--strict-vllm", action="store_true")
+    args = parser.parse_args()
+
     print(f"Python: {sys.version.split()[0]} ({platform.platform()})")
     if sys.version_info >= (3, 12):
-        warn("Python 3.12 works for some packages, but TinyZero/vLLM is much steadier on Python 3.9 or 3.10.")
+        message = "Python 3.12 works for some packages, but TinyZero/vLLM is much steadier on Python 3.9 or 3.10."
+        if args.strict_vllm:
+            fail(message, ["bash scripts/setup_autodl_vllm_env.sh"])
+        warn(message)
 
     versions = {}
     for name in ["numpy", "torch", "pandas", "pyarrow", "transformers", "vllm", "ray"]:

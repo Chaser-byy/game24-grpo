@@ -154,6 +154,15 @@ If it fails on NumPy, reinstall the pinned stack:
 pip install --force-reinstall "numpy==1.26.4" "pandas==2.2.2" "pyarrow==16.1.0"
 ```
 
+For the vLLM path on AutoDL, prefer a clean Python 3.10 environment instead of repairing the base Python 3.12 environment in place:
+
+```bash
+bash scripts/setup_autodl_vllm_env.sh
+conda activate game24-vllm
+python scripts/smoke_vllm_game24.py --model Qwen/Qwen2.5-1.5B-Instruct
+bash scripts/train_game24_grpo_vllm_autodl.sh 2>&1 | tee outputs/train_game24_grpo_vllm.log
+```
+
 The local development environment is not assumed to have enough GPU memory for a full run. The codebase supports data preprocessing, verifier tests, script/config checks, and small dry runs locally; full GRPO training should be run on a GPU server.
 
 ## Checkpoint Evaluation
