@@ -1,0 +1,14 @@
+accelerate
+codetiming
+datasets==2.21.0
+dill
+hydra-core
+numpy==1.26.4
+pandas==2.2.2
+pyarrow==16.1.0
+pybind11
+ray
+tensordict<0.6
+transformers==4.47.1
+vllm==0.6.3
+wandb

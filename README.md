@@ -114,6 +114,8 @@ export OUTPUT_DIR=$PWD/checkpoints
 export N_GPUS=1
 export ROLLOUT_TP_SIZE=1
 export ROLLOUT_N=8
+export ROLLOUT_NAME=hf
+export ROLLOUT_MICRO_BATCH_SIZE=8
 export USE_REMOVE_PADDING=False
 export ATTN_IMPLEMENTATION=sdpa
 export TRAIN_BATCH_SIZE=64
@@ -138,7 +140,19 @@ actor_rollout_ref.actor.use_kl_loss=True
 actor_rollout_ref.actor.kl_loss_coef=0.001
 ```
 
-`USE_REMOVE_PADDING=False` and `ATTN_IMPLEMENTATION=sdpa` are the defaults so the single-GPU training path does not require compiling `flash-attn`. If your environment has a compatible `flash-attn` install, you can set `USE_REMOVE_PADDING=True` and `ATTN_IMPLEMENTATION=flash_attention_2` for the optimized path.
+`ROLLOUT_NAME=hf`, `USE_REMOVE_PADDING=False`, and `ATTN_IMPLEMENTATION=sdpa` are the defaults so the single-GPU AutoDL path avoids the fragile vLLM/flash-attn/NumPy compiled-extension stack. If your environment has a compatible vLLM and `flash-attn` install, you can set `ROLLOUT_NAME=vllm`, `USE_REMOVE_PADDING=True`, and `ATTN_IMPLEMENTATION=flash_attention_2` for the optimized path.
+
+Before long training runs on AutoDL, run:
+
+```bash
+python scripts/check_autodl_env.py
+```
+
+If it fails on NumPy, reinstall the pinned stack:
+
+```bash
+pip install --force-reinstall "numpy==1.26.4" "pandas==2.2.2" "pyarrow==16.1.0"
+```
 
 The local development environment is not assumed to have enough GPU memory for a full run. The codebase supports data preprocessing, verifier tests, script/config checks, and small dry runs locally; full GRPO training should be run on a GPU server.
 

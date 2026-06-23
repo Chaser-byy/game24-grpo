@@ -40,6 +40,9 @@ class HFRollout(BaseRollout):
         self.module = module
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
+        n = self.config.get('n', 1)
+        if n > 1:
+            prompts = prompts.repeat(repeat_times=n, interleave=True)
         batch_size = prompts.batch.batch_size[0]
         num_chunks = max(batch_size // self.config.get('micro_batch_size', batch_size), 1)
         batch_prompts = prompts.chunk(chunks=num_chunks)
