@@ -17,6 +17,7 @@ import os
 from typing import List, Union
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 import torch
 import numpy as np
@@ -95,11 +96,24 @@ class RLHFDataset(Dataset):
 
     def _read_files_and_tokenize(self):
         dataframes = []
+        records = []
+        use_record_fallback = False
         for parquet_file in self.parquet_files:
             # read parquet files and cache
-            dataframe = pd.read_parquet(parquet_file)
-            dataframes.append(dataframe)
-        self.dataframe = pd.concat(dataframes)
+            try:
+                dataframe = pd.read_parquet(parquet_file)
+                dataframes.append(dataframe)
+            except Exception as exc:
+                print(f'pd.read_parquet failed for {parquet_file}: {exc}')
+                print('Falling back to pyarrow Table.to_pylist()')
+                use_record_fallback = True
+                records.extend(pq.read_table(parquet_file).to_pylist())
+        if use_record_fallback:
+            for dataframe in dataframes:
+                records.extend(dataframe.to_dict('records'))
+            self.dataframe = records
+        else:
+            self.dataframe = pd.concat(dataframes)
 
         print(f'original dataset len: {len(self.dataframe)}')
 
@@ -121,7 +135,10 @@ class RLHFDataset(Dataset):
         """
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
-        row_dict = self.dataframe.iloc[item].to_dict()
+        if isinstance(self.dataframe, list):
+            row_dict = dict(self.dataframe[item])
+        else:
+            row_dict = self.dataframe.iloc[item].to_dict()
 
         chat = row_dict.pop(self.prompt_key)
 

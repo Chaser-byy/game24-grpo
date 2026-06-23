@@ -3,7 +3,7 @@ import json
 import os
 from statistics import mean
 
-import pandas as pd
+import pyarrow.parquet as pq
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -12,8 +12,7 @@ from verl.utils.reward_score.game24 import compute_score, extract_solution
 
 def load_rows(data_dir, split, limit):
     path = os.path.join(data_dir, f"{split}.parquet")
-    frame = pd.read_parquet(path)
-    rows = frame.to_dict("records")
+    rows = pq.read_table(path).to_pylist()
     if limit is not None:
         rows = rows[:limit]
     return rows
