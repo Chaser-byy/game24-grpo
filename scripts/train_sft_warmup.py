@@ -29,6 +29,11 @@ def parse_args() -> argparse.Namespace:
         help="Full merged model directory for subsequent GRPO; defaults to OUTPUT_merged",
     )
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--include-unsolvable",
+        action="store_true",
+        help="Include exactly verified unsolvable rows and label them as UNSOLVABLE",
+    )
     parser.add_argument("--epochs", type=float, default=1.0)
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -65,7 +70,8 @@ def main() -> None:
     examples = []
     for path in args.data:
         examples.extend(load_jsonl(path))
-    examples = [example for example in examples if example.solvable is not False]
+    if not args.include_unsolvable:
+        examples = [example for example in examples if example.solvable is not False]
     if args.limit > 0:
         examples = examples[: args.limit]
     sft_rows = build_sft_examples(examples)
@@ -119,6 +125,7 @@ def main() -> None:
         "python": sys.version.split()[0],
         "arguments": vars(args),
         "input_examples": len(examples),
+        "input_unsolvable_examples": sum(example.solvable is False for example in examples),
         "solver_labeled_examples": len(sft_rows),
         "tokenized_examples": len(tokenized),
         "merged_output": str(merged_output),

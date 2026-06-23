@@ -32,6 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", required=True, nargs="+", help="One or more training JSONL files")
     parser.add_argument("--output", required=True, help="Training and adapter output directory")
     parser.add_argument("--eval-data", help="Optional periodic validation JSONL")
+    parser.add_argument(
+        "--include-unsolvable",
+        action="store_true",
+        help="Keep explicitly unsolvable examples in the training data",
+    )
     parser.add_argument("--run-final-eval", action="store_true")
     parser.add_argument("--eval-limit", type=int, default=0)
     parser.add_argument("--limit", type=int, default=0)
@@ -83,11 +88,12 @@ def main() -> None:
     examples = []
     for path in args.data:
         examples.extend(load_jsonl(path))
-    examples = [example for example in examples if example.solvable is not False]
+    if not args.include_unsolvable:
+        examples = [example for example in examples if example.solvable is not False]
     if args.limit > 0:
         examples = examples[: args.limit]
     if not examples:
-        raise SystemExit("no solvable training examples found")
+        raise SystemExit("no training examples found")
 
     rows = [_training_row(example) for example in examples]
     train_dataset = Dataset.from_list(rows)
@@ -253,6 +259,7 @@ def main() -> None:
         "command_args": vars(args),
         "grpo_config": training_args.to_dict(),
         "train_examples": len(examples),
+        "train_unsolvable_examples": sum(example.solvable is False for example in examples),
         "eval_examples": len(eval_examples),
         "reward_functions": [function.__name__ for function in REWARD_FUNCTIONS],
         "completion_samples": str(completions_path),

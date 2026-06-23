@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-end", type=int, default=1000)
     parser.add_argument("--validation-size", type=int, default=100)
     parser.add_argument("--unsolvable-size", type=int, default=100)
+    parser.add_argument("--train-unsolvable-size", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -33,7 +34,11 @@ def normalized(path: str, source: str) -> list[Game24Example]:
     ]
 
 
-def generate_unsolvable(size: int, seed: int) -> tuple[list[Game24Example], int]:
+def generate_unsolvable(
+    test_size: int,
+    train_size: int,
+    seed: int,
+) -> tuple[list[Game24Example], list[Game24Example], int]:
     """Generate lexicographically stable, exactly verified unsolvable puzzles."""
 
     candidates = []
@@ -45,13 +50,21 @@ def generate_unsolvable(size: int, seed: int) -> tuple[list[Game24Example], int]
                     numbers=numbers,
                     solvable=False,
                     source="exact-enumeration",
-                    split="test_unsolvable",
                 )
             )
-    if len(candidates) < size:
+    required = test_size + train_size
+    if len(candidates) < required:
         raise RuntimeError(f"only found {len(candidates)} unsolvable puzzles")
     random.Random(seed).shuffle(candidates)
-    return candidates[:size], len(candidates)
+    test = [
+        Game24Example(**{**candidate.__dict__, "split": "test_unsolvable"})
+        for candidate in candidates[:test_size]
+    ]
+    train = [
+        Game24Example(**{**candidate.__dict__, "split": "train_unsolvable"})
+        for candidate in candidates[test_size:required]
+    ]
+    return test, train, len(candidates)
 
 
 def main() -> None:
@@ -66,8 +79,14 @@ def main() -> None:
         validation_size=args.validation_size,
         seed=args.seed,
     )
-    unsolvable, unsolvable_pool_size = generate_unsolvable(args.unsolvable_size, args.seed)
+    unsolvable, train_unsolvable, unsolvable_pool_size = generate_unsolvable(
+        args.unsolvable_size,
+        args.train_unsolvable_size,
+        args.seed,
+    )
     splits["test_unsolvable"] = unsolvable
+    if train_unsolvable:
+        splits["train_unsolvable"] = train_unsolvable
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -80,6 +99,15 @@ def main() -> None:
             "exact exhaustive Fraction solver over combinations_with_replacement(1..13, 4)"
         ),
     }
+    if train_unsolvable:
+        manifest["splits"]["train_unsolvable"] = {
+            "count": len(train_unsolvable),
+            "pool_count": unsolvable_pool_size,
+            "construction": (
+                "exact exhaustive Fraction solver over combinations_with_replacement(1..13, 4); "
+                "disjoint from test_unsolvable after seeded shuffle"
+            ),
+        }
     manifest["arguments"] = vars(args)
     (output_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

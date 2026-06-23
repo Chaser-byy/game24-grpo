@@ -192,7 +192,13 @@ def test_sft_labels_are_verified_r1_responses() -> None:
 
     manual = build_sft_response("6/(1-3/4)")
     assert parse_response(manual).valid_format
-    assert build_sft_examples([example, Game24Example("none", (1, 1, 1, 1), False)]) == [label]
+
+    unsolvable = Game24Example("none", (1, 1, 1, 1), False)
+    unsolvable_label = solver_label(unsolvable)
+    assert unsolvable_label is not None
+    assert unsolvable_label.expression == "UNSOLVABLE"
+    assert score_response(unsolvable_label.response, unsolvable.numbers, solvable=False).correctness
+    assert build_sft_examples([example, unsolvable]) == [label, unsolvable_label]
 
 
 def test_manifest_json_shape_is_serializable() -> None:

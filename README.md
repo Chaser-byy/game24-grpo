@@ -82,19 +82,21 @@ python scripts/download_model.py \
 3. 调参阶段从 1262 中固定抽取 100 道 ID validation，剩余 `train=1162`。
 4. 超参数确定后可用 `train_full=1262` 重新训练，最终只评测困难留出集。
 5. `1..13` 有重复四数组合共 1820 个；精确求解得到 1362 个可解、458 个无解，固定
-   随机抽取其中 100 道作为无解测试。
+   随机抽取其中 100 道作为无解测试。可额外划出不重叠的无解训练集，用于拒答能力
+   消融实验。
 
 准备本地原始文件后运行：
 
 ```bash
 python scripts/prepare_experiment_data.py \
   --training-file /home/ma-user/work/data/nlile_24_game.jsonl \
-  --ranked-file /home/ma-user/work/data/24.csv \
+  --ranked-file /home/ma-user/work/data/game24.csv \
   --output-dir data/processed \
   --test-start 900 \
   --test-end 1000 \
   --validation-size 100 \
   --unsolvable-size 100 \
+  --train-unsolvable-size 200 \
   --seed 42
 ```
 
@@ -106,6 +108,7 @@ validation_id.jsonl      100  周期验证
 train_full.jsonl        1262  最终训练
 test_hard.jsonl          100  唯一正式 Game24 困难测试
 test_unsolvable.jsonl    100  瞎编/拒答测试
+train_unsolvable.jsonl   200  可选拒答训练，不与 test_unsolvable 重叠
 manifest.json                  数量、来源、切片和指纹
 ```
 
@@ -158,7 +161,8 @@ python scripts/train_grpo.py \
 ```bash
 python scripts/train_sft_warmup.py \
   --model /root/autodl-tmp/models/Qwen2.5-1.5B-Instruct \
-  --data data/processed/train.jsonl \
+  --data data/processed/train.jsonl data/processed/train_unsolvable.jsonl \
+  --include-unsolvable \
   --output outputs/sft_warmup_4090 \
   --merged-output outputs/sft_warmup_4090_merged \
   --epochs 1 \
@@ -175,7 +179,8 @@ python scripts/train_sft_warmup.py \
 python scripts/train_grpo.py \
   --config configs/rtx4090_grpo.json \
   --model outputs/sft_warmup_4090_merged \
-  --data data/processed/train.jsonl \
+  --data data/processed/train.jsonl data/processed/train_unsolvable.jsonl \
+  --include-unsolvable \
   --eval-data data/processed/validation_id.jsonl \
   --output outputs/grpo_after_sft_4090
 ```
