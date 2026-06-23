@@ -3,12 +3,14 @@ Preprocess Game of 24 datasets for TinyZero/veRL GRPO training.
 """
 
 import argparse
+import csv
 import itertools
 import os
 import random
 import re
 from collections import Counter
 from fractions import Fraction
+from urllib.request import urlopen
 
 from datasets import Dataset, load_dataset
 
@@ -21,6 +23,7 @@ except ModuleNotFoundError:
 
 DATA_SOURCE = "game24"
 TARGET = 24
+HARD_CSV_URL = "https://huggingface.co/datasets/test-time-compute/game-of-24/resolve/main/game24.csv"
 
 
 def make_prompt(numbers, template_type="qwen-instruct"):
@@ -101,6 +104,21 @@ def normalize_hard(example, index):
         "rank": int(rank),
         "solved_rate": solved_rate,
     }
+
+
+def load_hard_items():
+    """Load the hard Game-of-24 set, with a CSV fallback for fragile pandas stacks."""
+    try:
+        hard_raw = load_dataset("test-time-compute/game-of-24", split="train")
+        return [normalize_hard(example, index) for index, example in enumerate(hard_raw)]
+    except Exception as exc:
+        print(f"Warning: load_dataset failed for test-time-compute/game-of-24: {exc}")
+        print(f"Falling back to direct CSV download: {HARD_CSV_URL}")
+
+    with urlopen(HARD_CSV_URL) as response:
+        text = response.read().decode("utf-8")
+    rows = csv.DictReader(text.splitlines())
+    return [normalize_hard(row, index) for index, row in enumerate(rows)]
 
 
 def _solvable_values(values):
@@ -228,10 +246,9 @@ def main():
     os.makedirs(args.local_dir, exist_ok=True)
 
     primary_raw = load_dataset("nlile/24-game", split="train")
-    hard_raw = load_dataset("test-time-compute/game-of-24", split="train")
 
     primary_items = [normalize_primary(example, index) for index, example in enumerate(primary_raw)]
-    hard_items_all = [normalize_hard(example, index) for index, example in enumerate(hard_raw)]
+    hard_items_all = load_hard_items()
     hard_slice = hard_items_all[args.test_hard_start:args.test_hard_end]
 
     solvable_items = [item for item in primary_items if item["solvable"]]
