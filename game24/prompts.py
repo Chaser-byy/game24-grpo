@@ -22,8 +22,10 @@ Use every input number exactly once. Use only +, -, *, / and parentheses.
 Do not concatenate digits, introduce constants, or use an equals sign.
 {unsolvable_rule}
 
-Return exactly this XML structure and nothing else:
-<think>Reason through candidate operations and verify the final result.</think>
-<answer>one arithmetic expression, or UNSOLVABLE</answer>
+Return exactly one response with this tag structure:
+<think>...</think>
+<answer>...</answer>
 
-Keep the reasoning focused, but include enough detail to check every number and the target."""
+Inside <think>, write your own short calculation and verify the target.
+Inside <answer>, write only one arithmetic expression, or UNSOLVABLE.
+Do not copy the instructional words or add any text outside the two tags."""

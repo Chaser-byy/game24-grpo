@@ -23,6 +23,7 @@ from game24.grpo_rewards import (
 from game24.parser import extract_answer, parse_response
 from game24.prompts import build_prompt
 from game24.rewards import compute_reward, score_response
+from game24.sft import build_sft_examples, build_sft_response, solver_label
 from game24.solver import find_solution, is_solvable
 from game24.splits import build_game24_splits
 from game24.verifier import check_expression, verify_expression
@@ -178,6 +179,20 @@ def test_prompt_supports_fixed_and_dynamic_targets() -> None:
     assert "<think>" in prompt and "<answer>" in prompt
     assert "UNSOLVABLE" in prompt
     assert "equals sign" in prompt
+    assert "Reason through candidate operations" not in prompt
+
+
+def test_sft_labels_are_verified_r1_responses() -> None:
+    example = Game24Example("demo", (1, 3, 4, 6), True)
+    label = solver_label(example)
+    assert label is not None
+    assert verify_expression(label.expression, example.numbers)
+    assert parse_response(label.response).valid_format
+    assert score_response(label.response, example.numbers).correctness == 1.0
+
+    manual = build_sft_response("6/(1-3/4)")
+    assert parse_response(manual).valid_format
+    assert build_sft_examples([example, Game24Example("none", (1, 1, 1, 1), False)]) == [label]
 
 
 def test_manifest_json_shape_is_serializable() -> None:

@@ -148,6 +148,38 @@ python scripts/train_grpo.py \
   --max-steps 2
 ```
 
+### Solver SFT warmup + GRPO
+
+如果纯 GRPO 只学会了 `<think>/<answer>` 格式，但 `accuracy@1` 仍接近 0，说明严格正确性奖励
+太稀疏，同组采样里很少出现正样本。此时可先用项目内精确 DP solver 生成训练题参考解，
+做一个很短的 LoRA SFT warmup，再把 LoRA 合并成普通 CausalLM 作为 GRPO 初始策略。
+这不改变最终评测协议；报告中应把它标注为 warm-start ablation。
+
+```bash
+python scripts/train_sft_warmup.py \
+  --model /root/autodl-tmp/models/Qwen2.5-1.5B-Instruct \
+  --data data/processed/train.jsonl \
+  --output outputs/sft_warmup_4090 \
+  --merged-output outputs/sft_warmup_4090_merged \
+  --epochs 1 \
+  --precision bf16 \
+  --batch-size 4 \
+  --gradient-accumulation-steps 4 \
+  --learning-rate 2e-5
+```
+
+随后从合并后的 warmup 模型继续 GRPO。RTX 4090 建议使用每题 16 个 generation，提高组内
+发现正确表达式的概率：
+
+```bash
+python scripts/train_grpo.py \
+  --config configs/rtx4090_grpo.json \
+  --model outputs/sft_warmup_4090_merged \
+  --data data/processed/train.jsonl \
+  --eval-data data/processed/validation_id.jsonl \
+  --output outputs/grpo_after_sft_4090
+```
+
 调参训练使用独立 ID validation：
 
 ```bash
