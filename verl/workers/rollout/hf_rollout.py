@@ -40,7 +40,7 @@ class HFRollout(BaseRollout):
         self.module = module
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        n = self.config.get('n', 1)
+        n = 1 if prompts.meta_info.get('validate', False) else self.config.get('n', 1)
         if n > 1:
             prompts = prompts.repeat(repeat_times=n, interleave=True)
         batch_size = prompts.batch.batch_size[0]
