@@ -185,6 +185,20 @@ python scripts/train_grpo.py \
   --output outputs/grpo_after_sft_4090
 ```
 
+AutoDL 睡觉版可以直接启动 tmux，全自动跑 SFT warmup、两版 GRPO、完整评测和汇总：
+
+```bash
+bash scripts/run_overnight_tmux.sh
+```
+
+断开 VSCode 不会影响训练。回来看进度：
+
+```bash
+tmux attach -t game24_overnight
+```
+
+所有结果默认写到 `outputs/overnight_4090_时间戳/`，其中 `REPORT.md` 是最简汇总。
+
 调参训练使用独立 ID validation：
 
 ```bash
