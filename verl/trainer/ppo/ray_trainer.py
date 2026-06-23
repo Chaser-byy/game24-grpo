@@ -254,6 +254,29 @@ def compute_data_metrics(batch, use_critic=True):
         'prompt_length/clip_ratio':
             torch.mean(torch.eq(prompt_length, max_prompt_length).float()).detach().item(),
     }
+
+    data_sources = np.asarray(batch.non_tensor_batch.get('data_source', []))
+    if data_sources.size > 0 and np.any(data_sources == 'game24'):
+        game24_mask = data_sources == 'game24'
+        game24_scores = sequence_score.detach().cpu().numpy()[game24_mask]
+        if game24_scores.size > 0:
+            metrics.update({
+                'game24/format_rate': float(np.mean(game24_scores > 0.0)),
+                'game24/solved_rate': float(np.mean(game24_scores >= 0.999)),
+            })
+
+        uids = batch.non_tensor_batch.get('uid', None)
+        if uids is not None:
+            grouped_scores = {}
+            for uid, score, is_game24 in zip(uids, sequence_score.detach().cpu().numpy(), game24_mask):
+                if is_game24:
+                    grouped_scores.setdefault(uid, []).append(float(score))
+            group_stds = [np.std(scores) for scores in grouped_scores.values() if len(scores) > 1]
+            if group_stds:
+                metrics.update({
+                    'game24/group_reward_std_mean': float(np.mean(group_stds)),
+                    'game24/group_reward_zero_std_rate': float(np.mean(np.asarray(group_stds) <= 1e-8)),
+                })
     return metrics
 
 
