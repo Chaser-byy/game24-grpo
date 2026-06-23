@@ -163,6 +163,13 @@ python scripts/smoke_vllm_game24.py --model Qwen/Qwen2.5-1.5B-Instruct
 bash scripts/train_game24_grpo_vllm_autodl.sh 2>&1 | tee outputs/train_game24_grpo_vllm.log
 ```
 
+If AutoDL's conda channels are broken, the setup script ignores `.condarc` by using `--override-channels`. You can choose a different conda mirror with:
+
+```bash
+CONDA_CHANNEL=https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main \
+bash scripts/setup_autodl_vllm_env.sh
+```
+
 The local development environment is not assumed to have enough GPU memory for a full run. The codebase supports data preprocessing, verifier tests, script/config checks, and small dry runs locally; full GRPO training should be run on a GPU server.
 
 ## Checkpoint Evaluation

@@ -5,6 +5,7 @@ ENV_NAME=${ENV_NAME:-game24-vllm}
 PYTHON_VERSION=${PYTHON_VERSION:-3.10}
 PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
 TORCH_INDEX_URL=${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}
+CONDA_CHANNEL=${CONDA_CHANNEL:-https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main}
 
 if ! command -v conda >/dev/null 2>&1; then
     echo "conda not found. Run this script inside the AutoDL image that provides conda."
@@ -16,7 +17,14 @@ eval "$(conda shell.bash hook)"
 if conda env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
     echo "Conda env ${ENV_NAME} already exists. Reusing it."
 else
-    conda create -n "${ENV_NAME}" "python=${PYTHON_VERSION}" -y
+    CONDA_NO_PLUGINS=true conda create \
+        --override-channels \
+        --solver=classic \
+        -c "${CONDA_CHANNEL}" \
+        -n "${ENV_NAME}" \
+        "python=${PYTHON_VERSION}" \
+        pip \
+        -y
 fi
 
 conda activate "${ENV_NAME}"
