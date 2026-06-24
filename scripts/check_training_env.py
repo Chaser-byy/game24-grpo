@@ -22,7 +22,8 @@ STABLE_INSTALL_COMMAND = (
     '"transformers==4.46.3" '
     '"peft==0.14.0" '
     '"trl==0.15.2" '
-    "onnx onnxscript"
+    '"onnx==1.16.2" '
+    '"onnxscript==0.1.0"'
 )
 
 
