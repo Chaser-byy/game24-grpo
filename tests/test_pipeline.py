@@ -21,6 +21,7 @@ from game24.grpo_rewards import (
     strict_format_reward,
     syntax_reward,
 )
+from game24.model_tot import apply_candidate, initial_state, parse_operation_candidates
 from game24.parser import extract_answer, parse_response
 from game24.prompts import build_prompt
 from game24.rewards import compute_reward, score_response
@@ -28,6 +29,7 @@ from game24.sft import build_sft_examples, build_sft_response, solver_label
 from game24.solver import find_solution, is_solvable
 from game24.splits import build_game24_splits
 from game24.tot import tot_search
+from game24.trajectory import find_trajectory, trajectory_to_response
 from game24.verifier import check_expression, verify_expression
 
 
@@ -155,6 +157,18 @@ def test_exact_solver() -> None:
     assert not is_solvable((1, 1, 1, 1))
 
 
+def test_verified_trajectory_response_contains_stateful_steps() -> None:
+    trajectory = find_trajectory((1, 3, 4, 6))
+    assert trajectory is not None
+    assert verify_expression(trajectory.expression, (1, 3, 4, 6))
+    assert len(trajectory.steps) == 3
+    response_text = trajectory_to_response(trajectory)
+    parsed = parse_response(response_text)
+    assert parsed.valid_format
+    assert "Remaining" in parsed.think
+    assert score_response(response_text, (1, 3, 4, 6)).correctness == 1.0
+
+
 def test_tot_search_finds_verified_expression() -> None:
     result = tot_search((4, 5, 6, 10))
     assert result.found
@@ -164,6 +178,19 @@ def test_tot_search_finds_verified_expression() -> None:
 
     unsolvable = tot_search((1, 1, 1, 1))
     assert not unsolvable.found
+
+
+def test_model_tot_candidate_parser_and_executor() -> None:
+    candidates = parse_operation_candidates("Try 0 * 1 = 20\n2 / 3", 4)
+    assert [(item.left_index, item.operation, item.right_index) for item in candidates] == [
+        (0, "*", 1),
+        (2, "/", 3),
+    ]
+    state = initial_state((4, 5, 6, 10))
+    child = apply_candidate(state, candidates[0])
+    assert child is not None
+    assert child.items[-1].expression == "(4*5)"
+    assert child.items[-1].value == 20
 
 
 def test_dynamic_countdown_normalization_and_deduplication() -> None:
@@ -193,11 +220,13 @@ def test_tot_slice_is_zero_based_half_open_and_leakage_free() -> None:
         test_start=1,
         test_end=3,
         validation_size=1,
+        id_test_size=1,
         seed=7,
     )
     assert [item.rank for item in splits["test_hard"]] == [2, 3]
     assert len(splits["train_full"]) == 3
-    assert len(splits["train"]) == 2
+    assert len(splits["train"]) == 1
+    assert len(splits["test_id"]) == 1
     assert manifest["test_slice"]["semantics"] == "python [start:end)"
 
 
@@ -217,6 +246,7 @@ def test_sft_labels_are_verified_r1_responses() -> None:
     assert label is not None
     assert verify_expression(label.expression, example.numbers)
     assert parse_response(label.response).valid_format
+    assert "Step 1" in label.response
     assert score_response(label.response, example.numbers).correctness == 1.0
 
     manual = build_sft_response("6/(1-3/4)")

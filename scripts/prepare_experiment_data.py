@@ -20,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-start", type=int, default=900)
     parser.add_argument("--test-end", type=int, default=1000)
     parser.add_argument("--validation-size", type=int, default=100)
+    parser.add_argument("--id-test-size", type=int, default=0)
     parser.add_argument("--unsolvable-size", type=int, default=100)
     parser.add_argument("--train-unsolvable-size", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
@@ -77,6 +78,7 @@ def main() -> None:
         test_start=args.test_start,
         test_end=args.test_end,
         validation_size=args.validation_size,
+        id_test_size=args.id_test_size,
         seed=args.seed,
     )
     unsolvable, train_unsolvable, unsolvable_pool_size = generate_unsolvable(

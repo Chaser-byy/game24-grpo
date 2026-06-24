@@ -29,6 +29,8 @@ def parse_args() -> argparse.Namespace:
         help="Full merged model directory for subsequent GRPO; defaults to OUTPUT_merged",
     )
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--label-style", choices=("trajectory", "compact"), default="trajectory")
+    parser.add_argument("--solutions-per-example", type=int, default=1)
     parser.add_argument(
         "--include-unsolvable",
         action="store_true",
@@ -74,7 +76,11 @@ def main() -> None:
         examples = [example for example in examples if example.solvable is not False]
     if args.limit > 0:
         examples = examples[: args.limit]
-    sft_rows = build_sft_examples(examples)
+    sft_rows = build_sft_examples(
+        examples,
+        label_style=args.label_style,
+        solutions_per_example=args.solutions_per_example,
+    )
     if not sft_rows:
         raise SystemExit("no solver-labeled examples available")
 
@@ -232,6 +238,8 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise SystemExit(f"training data not found: {path}")
     if args.batch_size < 1 or args.gradient_accumulation_steps < 1:
         raise SystemExit("batch size and gradient accumulation must be positive")
+    if args.solutions_per_example < 1:
+        raise SystemExit("--solutions-per-example must be positive")
     if args.max_length < 128:
         raise SystemExit("--max-length is too small for chat-formatted SFT rows")
 

@@ -14,6 +14,7 @@ def build_game24_splits(
     test_start: int = 900,
     test_end: int = 1000,
     validation_size: int = 100,
+    id_test_size: int = 0,
     seed: int = 42,
 ) -> tuple[dict[str, list[Game24Example]], dict[str, Any]]:
     """Hold out the ToT slice, then create a reproducible ID validation split."""
@@ -30,12 +31,15 @@ def build_game24_splits(
         for example in training_examples
         if example.solvable is True and number_key(example) not in hard_keys
     ]
-    if len(remaining) <= validation_size:
+    if id_test_size < 0:
+        raise ValueError("id_test_size must be non-negative")
+    if len(remaining) <= validation_size + id_test_size:
         raise ValueError("not enough non-test puzzles for the requested validation size")
 
     random.Random(seed).shuffle(remaining)
     validation = remaining[:validation_size]
-    train = remaining[validation_size:]
+    id_test = remaining[validation_size : validation_size + id_test_size]
+    train = remaining[validation_size + id_test_size :]
 
     splits = {
         "train": [replace(example, split="train") for example in train],
@@ -43,11 +47,14 @@ def build_game24_splits(
         "train_full": [replace(example, split="train_full") for example in remaining],
         "test_hard": [replace(example, split="test_hard") for example in hard_test],
     }
+    if id_test:
+        splits["test_id"] = [replace(example, split="test_id") for example in id_test]
 
     assert not ({number_key(item) for item in splits["train_full"]} & hard_keys)
     manifest = {
         "seed": seed,
         "test_slice": {"start": test_start, "end": test_end, "semantics": "python [start:end)"},
+        "id_test_size": id_test_size,
         "source_training_total": len(training_examples),
         "source_ranked_total": len(ranked_examples),
         "source_overlap": len(

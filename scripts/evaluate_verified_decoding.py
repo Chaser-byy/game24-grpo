@@ -58,6 +58,9 @@ def main() -> None:
         "selected_format": 0,
         "selected_syntax": 0,
         "selected_legal": 0,
+        "unsolvable": 0,
+        "correct_abstention": 0,
+        "false_claim": 0,
     }
 
     with output.open("w", encoding="utf-8") as file:
@@ -97,6 +100,10 @@ def main() -> None:
             totals["selected_format"] += int(selected["format_valid"])
             totals["selected_syntax"] += int(selected["syntax_valid"])
             totals["selected_legal"] += int(selected["numbers_valid"])
+            if example.solvable is False:
+                totals["unsolvable"] += 1
+                totals["correct_abstention"] += int(selected["answer"] == "UNSOLVABLE")
+                totals["false_claim"] += int(selected["claimed_solution"])
 
             record = {
                 "example_id": example.example_id,
@@ -154,6 +161,11 @@ def _summary(
         "selected_strict_format_rate": _rate(totals["selected_format"], total),
         "selected_syntax_rate": _rate(totals["selected_syntax"], total),
         "selected_legal_number_rate": _rate(totals["selected_legal"], total),
+        "unsolvable_total": totals["unsolvable"],
+        "correct_abstention_rate": _rate(
+            totals["correct_abstention"], totals["unsolvable"]
+        ),
+        "false_claim_rate": _rate(totals["false_claim"], totals["unsolvable"]),
         "generation": {
             "temperature": args.temperature,
             "top_p": args.top_p,
