@@ -223,6 +223,22 @@ python scripts/train_grpo.py \
   --max-completion-length 128
 ```
 
+训练继续提升有限时，使用 RLVR 场景自然支持的 verifier-selected decoding，把 pass@N
+转成最终输出准确率：
+
+```bash
+python scripts/evaluate_verified_decoding.py \
+  --model outputs/accuracy_first_4090_xxx/grpo_accuracy_reward \
+  --data data/processed/test_hard.jsonl \
+  --output outputs/verified_decoding_pass32.jsonl \
+  --num-samples 32 \
+  --temperature 0.9 \
+  --top-p 0.95
+```
+
+`selected_accuracy` 表示从 N 个候选中由程序验证选出的最终成功率。若只想展示工程上限，
+可以加 `--solver-fallback`，但报告中必须明确这是 exact solver oracle fallback，不是模型能力。
+
 调参训练使用独立 ID validation：
 
 ```bash
