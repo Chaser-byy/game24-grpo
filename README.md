@@ -239,6 +239,25 @@ python scripts/evaluate_verified_decoding.py \
 `selected_accuracy` 表示从 N 个候选中由程序验证选出的最终成功率。若只想展示工程上限，
 可以加 `--solver-fallback`，但报告中必须明确这是 exact solver oracle fallback，不是模型能力。
 
+Tree-of-Thought test-time search 可作为另一个加分实验。这里的实现是程序化状态树搜索：
+每一步把两个剩余表达式用 `+ - * /` 合并，并由同一个 verifier 检查终点。默认 exhaustive，
+因此更接近“搜索/求解器上限”，不应和 greedy 模型能力混为一谈。
+
+```bash
+python scripts/evaluate_tot.py \
+  --data data/processed/test_hard.jsonl \
+  --output outputs/tot_hard.jsonl
+```
+
+如果想模拟剪枝版 ToT，可以设置 beam：
+
+```bash
+python scripts/evaluate_tot.py \
+  --data data/processed/test_hard.jsonl \
+  --output outputs/tot_hard_beam8.jsonl \
+  --beam-size 8
+```
+
 调参训练使用独立 ID validation：
 
 ```bash

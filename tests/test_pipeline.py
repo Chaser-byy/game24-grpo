@@ -27,6 +27,7 @@ from game24.rewards import compute_reward, score_response
 from game24.sft import build_sft_examples, build_sft_response, solver_label
 from game24.solver import find_solution, is_solvable
 from game24.splits import build_game24_splits
+from game24.tot import tot_search
 from game24.verifier import check_expression, verify_expression
 
 
@@ -152,6 +153,17 @@ def test_exact_solver() -> None:
     assert solution is not None
     assert verify_expression(solution, (1, 3, 4, 6))
     assert not is_solvable((1, 1, 1, 1))
+
+
+def test_tot_search_finds_verified_expression() -> None:
+    result = tot_search((4, 5, 6, 10))
+    assert result.found
+    assert result.expression is not None
+    assert verify_expression(result.expression, (4, 5, 6, 10))
+    assert result.trace
+
+    unsolvable = tot_search((1, 1, 1, 1))
+    assert not unsolvable.found
 
 
 def test_dynamic_countdown_normalization_and_deduplication() -> None:
