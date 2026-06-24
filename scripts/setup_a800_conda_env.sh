@@ -11,7 +11,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ENV_NAME="${ENV_NAME:-game24-a800}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.10}"
 CONDA_MAIN_CHANNEL="${CONDA_MAIN_CHANNEL:-https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main}"
-CONDA_FREE_CHANNEL="${CONDA_FREE_CHANNEL:-https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free}"
+CONDA_EXTRA_CHANNEL="${CONDA_EXTRA_CHANNEL:-}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-http://mirrors.aliyun.com/pypi/simple}"
 PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-mirrors.aliyun.com}"
 PYTORCH_INDEX_URL="${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu121}"
@@ -23,17 +23,26 @@ fi
 
 echo "=== Setting up conda env: ${ENV_NAME} ==="
 echo "Python: ${PYTHON_VERSION}"
-echo "Conda channels: ${CONDA_MAIN_CHANNEL}, ${CONDA_FREE_CHANNEL}"
+if [[ -n "${CONDA_FREE_CHANNEL:-}" ]]; then
+  echo "Ignoring legacy CONDA_FREE_CHANNEL=${CONDA_FREE_CHANNEL}; pkgs/free is unreliable on current mirrors."
+fi
+if [[ -n "${CONDA_EXTRA_CHANNEL}" ]]; then
+  echo "Conda channels: ${CONDA_MAIN_CHANNEL}, ${CONDA_EXTRA_CHANNEL}"
+else
+  echo "Conda channels: ${CONDA_MAIN_CHANNEL}"
+fi
 echo "Pip index: ${PIP_INDEX_URL}"
 echo "PyTorch index: ${PYTORCH_INDEX_URL}"
 
 if conda env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
   echo "Conda env already exists: ${ENV_NAME}"
 else
+  CONDA_CHANNEL_ARGS=(--override-channels -c "${CONDA_MAIN_CHANNEL}")
+  if [[ -n "${CONDA_EXTRA_CHANNEL}" ]]; then
+    CONDA_CHANNEL_ARGS+=(-c "${CONDA_EXTRA_CHANNEL}")
+  fi
   conda create -y -n "${ENV_NAME}" \
-    --override-channels \
-    -c "${CONDA_MAIN_CHANNEL}" \
-    -c "${CONDA_FREE_CHANNEL}" \
+    "${CONDA_CHANNEL_ARGS[@]}" \
     "python=${PYTHON_VERSION}" \
     pip
 fi
