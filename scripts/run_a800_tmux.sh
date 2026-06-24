@@ -23,6 +23,13 @@ if tmux has-session -t "${SESSION}" 2>/dev/null; then
 fi
 
 COMMAND=(bash scripts/a800_restart_train.sh)
+if [[ -n "${CONDA_ENV:-}" ]]; then
+  if ! command -v conda >/dev/null 2>&1; then
+    echo "CONDA_ENV was set to ${CONDA_ENV}, but conda was not found" >&2
+    exit 1
+  fi
+  COMMAND=(conda run --no-capture-output -n "${CONDA_ENV}" "${COMMAND[@]}")
+fi
 
 pass_env() {
   local name="$1"
@@ -33,6 +40,7 @@ pass_env() {
 
 for name in \
   MODEL_DIR RAW_DATA_DIR TRAINING_FILE RANKED_FILE RUN_NAME RUN_ROOT PRECISION SEED \
+  CONDA_ENV \
   VALIDATION_SIZE ID_TEST_SIZE UNSOLVABLE_SIZE TRAIN_UNSOLVABLE_SIZE \
   SFT_EPOCHS SFT_SOLUTIONS_PER_EXAMPLE SFT_BATCH_SIZE SFT_GRAD_ACCUM SFT_MAX_LENGTH SFT_LR \
   GRPO1_EPOCHS GRPO1_NUM_GENERATIONS GRPO1_GRAD_ACCUM GRPO1_MAX_COMPLETION \
