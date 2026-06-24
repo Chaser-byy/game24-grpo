@@ -15,7 +15,7 @@ REQUIRED_MODULES = {
 }
 
 STABLE_INSTALL_COMMAND = (
-    'python -m pip install -U --force-reinstall '
+    "python -m pip install -U "
     '"numpy==1.26.4" '
     '"accelerate==1.2.1" '
     '"datasets==3.2.0" '
