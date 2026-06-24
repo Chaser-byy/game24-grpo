@@ -194,8 +194,7 @@ require_file "${MODEL_DIR}"
 require_file "${TRAINING_FILE}"
 require_file "${RANKED_FILE}"
 
-run_step "Environment check" \
-  python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0), 'bf16=', torch.cuda.is_bf16_supported()); print('mem_gb=', round(torch.cuda.get_device_properties(0).total_memory/1024**3, 1))"
+run_step "Training environment check" python scripts/check_training_env.py
 
 run_step "NVIDIA status" nvidia-smi
 
