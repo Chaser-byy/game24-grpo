@@ -21,7 +21,12 @@ from game24.grpo_rewards import (
     strict_format_reward,
     syntax_reward,
 )
-from game24.model_tot import apply_candidate, initial_state, parse_operation_candidates
+from game24.model_tot import (
+    apply_candidate,
+    build_tot_prompt,
+    initial_state,
+    parse_operation_candidates,
+)
 from game24.parser import extract_answer, parse_response
 from game24.prompts import build_prompt
 from game24.rewards import compute_reward, score_response
@@ -29,6 +34,7 @@ from game24.sft import build_sft_examples, build_sft_response, solver_label
 from game24.solver import find_solution, is_solvable
 from game24.splits import build_game24_splits
 from game24.tot import tot_search
+from game24.tot_policy import build_tot_policy_samples, state_can_reach_target
 from game24.trajectory import find_trajectory, trajectory_to_response
 from game24.verifier import check_expression, verify_expression
 
@@ -191,6 +197,27 @@ def test_model_tot_candidate_parser_and_executor() -> None:
     assert child is not None
     assert child.items[-1].expression == "(4*5)"
     assert child.items[-1].value == 20
+
+
+def test_tot_policy_samples_are_verified_next_operations() -> None:
+    example = Game24Example("demo", (1, 3, 4, 6), True)
+    samples = build_tot_policy_samples(
+        [example],
+        candidates_per_state=3,
+        max_states_per_example=4,
+        max_actions_per_state=2,
+    )
+    assert samples
+
+    sample = samples[0]
+    candidates = parse_operation_candidates(sample.label, len(sample.state.items))
+    assert len(candidates) == 1
+    assert candidates[0].raw_text == sample.label
+
+    child = apply_candidate(sample.state, candidates[0])
+    assert child is not None
+    assert state_can_reach_target(child, sample.target)
+    assert sample.prompt == build_tot_prompt(sample.state, sample.target, 3)
 
 
 def test_dynamic_countdown_normalization_and_deduplication() -> None:

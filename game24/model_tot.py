@@ -286,7 +286,7 @@ def _generate_proposals(
     temperature: float,
     top_p: float,
 ) -> list[str]:
-    prompt = _build_tot_prompt(state, target, candidates_per_state)
+    prompt = build_tot_prompt(state, target, candidates_per_state)
     messages = [{"role": "user", "content": prompt}]
     chat_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     model_inputs = tokenizer([chat_text], return_tensors="pt").to(model.device)
@@ -303,7 +303,9 @@ def _generate_proposals(
     return tokenizer.batch_decode(generated[:, prompt_length:], skip_special_tokens=True)
 
 
-def _build_tot_prompt(state: ModelToTState, target: int, candidates_per_state: int) -> str:
+def build_tot_prompt(state: ModelToTState, target: int, candidates_per_state: int = 4) -> str:
+    """Build the exact prompt used by model-guided ToT proposal generation."""
+
     rows = "\n".join(
         f"{index}: {item.expression} = {_format_fraction(item.value)}"
         for index, item in enumerate(state.items)
@@ -319,6 +321,9 @@ Return one operation per line in exactly this form:
 0 * 1
 2 - 0
 Do not explain or calculate; the program will verify arithmetic."""
+
+
+_build_tot_prompt = build_tot_prompt
 
 
 def _heuristic_children(state: ModelToTState, target: int, limit: int) -> list[ModelToTState]:
