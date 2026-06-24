@@ -16,6 +16,7 @@ from game24.data import (
 from game24.evaluation import _score_attempt, _wilson_interval
 from game24.grpo_rewards import (
     correctness_reward,
+    get_reward_functions,
     number_usage_reward,
     strict_format_reward,
     syntax_reward,
@@ -128,6 +129,22 @@ def test_trl_reward_functions_share_the_strict_scorer() -> None:
     assert syntax_reward(completions, **kwargs) == [0.1, 0.1, 0.0]
     assert number_usage_reward(completions, **kwargs) == [0.2, 0.2, 0.0]
     assert correctness_reward(completions, **kwargs) == [1.0, 0.0, 0.0]
+    assert [fn.__name__ for fn in get_reward_functions("default")] == [
+        "strict_format_reward",
+        "syntax_reward",
+        "number_usage_reward",
+        "correctness_reward",
+    ]
+    assert [fn.__name__ for fn in get_reward_functions("accuracy")] == [
+        "syntax_reward",
+        "number_usage_reward",
+        "correctness_reward",
+    ]
+    assert [fn.__name__ for fn in get_reward_functions("correctness")] == [
+        "correctness_reward"
+    ]
+    with pytest.raises(ValueError):
+        get_reward_functions("unknown")
 
 
 def test_exact_solver() -> None:

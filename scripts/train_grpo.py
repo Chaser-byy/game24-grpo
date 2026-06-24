@@ -13,7 +13,7 @@ from typing import Any
 
 from game24.data import load_jsonl
 from game24.evaluation import evaluate_model
-from game24.grpo_rewards import REWARD_FUNCTIONS, completion_text
+from game24.grpo_rewards import completion_text, get_reward_functions
 from game24.prompts import build_prompt
 from game24.rewards import score_response
 
@@ -44,6 +44,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int, default=-1)
     parser.add_argument("--learning-rate", type=float, default=5e-6)
     parser.add_argument("--beta", type=float, default=0.04, help="Reference-policy KL coefficient")
+    parser.add_argument(
+        "--reward-mode",
+        choices=("default", "accuracy", "correctness"),
+        default="default",
+        help=(
+            "default uses format+syntax+number+correctness; accuracy removes format reward; "
+            "correctness uses only the binary verifier reward"
+        ),
+    )
     parser.add_argument("--num-generations", type=int, default=4)
     parser.add_argument("--prompts-per-batch", type=int, default=1)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
@@ -84,6 +93,7 @@ def main() -> None:
 
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is unavailable; GRPO training requires one NVIDIA GPU")
+    reward_functions = get_reward_functions(args.reward_mode)
 
     examples = []
     for path in args.data:
@@ -158,7 +168,7 @@ def main() -> None:
         weight_decay=0.01,
         max_grad_norm=1.0,
         beta=args.beta,
-        reward_weights=[1.0] * len(REWARD_FUNCTIONS),
+        reward_weights=[1.0] * len(reward_functions),
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -233,7 +243,7 @@ def main() -> None:
     with redirect_stdout(log_file), redirect_stderr(log_file):
         trainer = AuditedGRPOTrainer(
             model=model,
-            reward_funcs=REWARD_FUNCTIONS,
+            reward_funcs=reward_functions,
             args=training_args,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
@@ -261,7 +271,8 @@ def main() -> None:
         "train_examples": len(examples),
         "train_unsolvable_examples": sum(example.solvable is False for example in examples),
         "eval_examples": len(eval_examples),
-        "reward_functions": [function.__name__ for function in REWARD_FUNCTIONS],
+        "reward_mode": args.reward_mode,
+        "reward_functions": [function.__name__ for function in reward_functions],
         "completion_samples": str(completions_path),
         "lora": {
             "r": args.lora_r,

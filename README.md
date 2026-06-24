@@ -199,6 +199,30 @@ tmux attach -t game24_overnight
 
 所有结果默认写到 `outputs/overnight_4090_时间戳/`，其中 `REPORT.md` 是最简汇总。
 
+如果模型已经稳定输出正确格式，但 greedy accuracy 仍低，可以继续做 accuracy-first 训练：
+脚本会先把 LoRA adapter 合并成完整模型，再用 `train_full.jsonl` 做纯可解 solver SFT refresh，
+最后用 `--reward-mode accuracy` 继续 GRPO。该模式不再给格式奖励，只保留语法、用数和
+严格正确性奖励；无解题不会进入训练。
+
+```bash
+SOURCE_MODEL=outputs/overnight_4090_20260624_014838/grpo_b_explore_g16 \
+bash scripts/accuracy_first_4090.sh
+```
+
+也可以更激进地只用二值正确性奖励：
+
+```bash
+python scripts/train_grpo.py \
+  --config configs/rtx4090_grpo.json \
+  --model outputs/accuracy_first_4090_xxx/sft_accuracy_refresh_merged \
+  --data data/processed/train_full.jsonl \
+  --output outputs/grpo_correctness_only \
+  --reward-mode correctness \
+  --epochs 1 \
+  --num-generations 16 \
+  --max-completion-length 128
+```
+
 调参训练使用独立 ID validation：
 
 ```bash

@@ -83,3 +83,28 @@ REWARD_FUNCTIONS = [
     number_usage_reward,
     correctness_reward,
 ]
+
+ACCURACY_REWARD_FUNCTIONS = [
+    syntax_reward,
+    number_usage_reward,
+    correctness_reward,
+]
+
+CORRECTNESS_ONLY_REWARD_FUNCTIONS = [
+    correctness_reward,
+]
+
+REWARD_MODES = {
+    "default": REWARD_FUNCTIONS,
+    "accuracy": ACCURACY_REWARD_FUNCTIONS,
+    "correctness": CORRECTNESS_ONLY_REWARD_FUNCTIONS,
+}
+
+
+def get_reward_functions(mode: str):
+    """Return the reward functions for one named training objective."""
+
+    try:
+        return REWARD_MODES[mode]
+    except KeyError as error:
+        raise ValueError(f"unknown reward mode: {mode}") from error
