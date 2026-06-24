@@ -45,12 +45,37 @@ run_step() {
   "$@"
 }
 
+run_step_if_missing() {
+  local artifact="$1"
+  local name="$2"
+  shift 2
+  if [[ -e "${artifact}" ]]; then
+    echo
+    echo "===== ${name} ====="
+    echo "Skipping because artifact exists: ${artifact}"
+  else
+    run_step "${name}" "$@"
+  fi
+}
+
+run_step_optional() {
+  local name="$1"
+  shift
+  echo
+  echo "===== ${name} ====="
+  echo "Command: $*"
+  if ! "$@"; then
+    echo "WARNING: optional step failed, continuing: ${name}" >&2
+  fi
+}
+
 evaluate_all() {
   local model_dir="$1"
   local eval_dir="$2"
   mkdir -p "${eval_dir}"
 
-  run_step "Evaluate hard accuracy@1: ${eval_dir}" \
+  run_step_if_missing "${eval_dir}/hard_eval.summary.json" \
+    "Evaluate hard accuracy@1: ${eval_dir}" \
     python scripts/evaluate_baseline.py \
       --model "${model_dir}" \
       --data data/processed/test_hard.jsonl \
@@ -58,7 +83,8 @@ evaluate_all() {
       --num-samples 1 \
       --max-new-tokens "${MAX_NEW_TOKENS}"
 
-  run_step "Evaluate hard pass@16: ${eval_dir}" \
+  run_step_if_missing "${eval_dir}/hard_eval_pass16.summary.json" \
+    "Evaluate hard pass@16: ${eval_dir}" \
     python scripts/evaluate_baseline.py \
       --model "${model_dir}" \
       --data data/processed/test_hard.jsonl \
@@ -69,7 +95,8 @@ evaluate_all() {
       --top-p 0.95 \
       --max-new-tokens "${MAX_NEW_TOKENS}"
 
-  run_step "Evaluate unsolvable: ${eval_dir}" \
+  run_step_if_missing "${eval_dir}/unsolvable_eval.summary.json" \
+    "Evaluate unsolvable: ${eval_dir}" \
     python scripts/evaluate_baseline.py \
       --model "${model_dir}" \
       --data data/processed/test_unsolvable.jsonl \
@@ -82,15 +109,15 @@ plot_if_possible() {
   local train_metrics="$1"
   local grpo_summary="$2"
   local plot_dir="$3"
-  if [[ -f "${train_metrics}" && -f outputs/baseline_hard.summary.json ]]; then
-    run_step "Plot ${plot_dir}" \
+  if [[ -f "${train_metrics}" && -f "${grpo_summary}" && -f outputs/baseline_hard.summary.json ]]; then
+    run_step_optional "Plot ${plot_dir}" \
       python scripts/plot_results.py \
         --train-metrics "${train_metrics}" \
         --baseline-summary outputs/baseline_hard.summary.json \
         --grpo-summary "${grpo_summary}" \
         --output-dir "${plot_dir}"
   else
-    echo "Skipping plot: missing ${train_metrics} or outputs/baseline_hard.summary.json"
+    echo "Skipping plot: missing metrics, GRPO summary, or baseline summary"
   fi
 }
 
@@ -130,7 +157,8 @@ fi
 
 SFT_DIR="${RUN_ROOT}/sft_warmup_unsolv"
 SFT_MERGED="${RUN_ROOT}/sft_warmup_unsolv_merged"
-run_step "SFT warmup with solvable + auxiliary unsolvable labels" \
+run_step_if_missing "${SFT_MERGED}/config.json" \
+  "SFT warmup with solvable + auxiliary unsolvable labels" \
   python scripts/train_sft_warmup.py \
     --model "${MODEL_DIR}" \
     --data data/processed/train.jsonl data/processed/train_unsolvable.jsonl \
@@ -146,7 +174,8 @@ run_step "SFT warmup with solvable + auxiliary unsolvable labels" \
 evaluate_all "${SFT_MERGED}" "${RUN_ROOT}/eval_sft"
 
 GRPO_A="${RUN_ROOT}/grpo_a_stable_g12"
-run_step "GRPO variant A: stable g12, two epochs" \
+run_step_if_missing "${GRPO_A}/adapter_config.json" \
+  "GRPO variant A: stable g12, two epochs" \
   python scripts/train_grpo.py \
     --config configs/rtx4090_grpo.json \
     --model "${SFT_MERGED}" \
@@ -171,7 +200,8 @@ plot_if_possible \
   "${GRPO_A}/plots"
 
 GRPO_B="${RUN_ROOT}/grpo_b_explore_g16"
-run_step "GRPO variant B: higher exploration g16, one epoch" \
+run_step_if_missing "${GRPO_B}/adapter_config.json" \
+  "GRPO variant B: higher exploration g16, one epoch" \
   python scripts/train_grpo.py \
     --config configs/rtx4090_grpo.json \
     --model "${SFT_MERGED}" \

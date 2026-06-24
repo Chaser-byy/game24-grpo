@@ -17,8 +17,16 @@ if tmux has-session -t "${SESSION}" 2>/dev/null; then
   exit 1
 fi
 
+COMMAND=(bash scripts/autodl_overnight_4090.sh)
+if [[ -n "${RUN_ROOT:-}" ]]; then
+  COMMAND=(env "RUN_ROOT=${RUN_ROOT}" "${COMMAND[@]}")
+fi
+if [[ -n "${RUN_NAME:-}" ]]; then
+  COMMAND=(env "RUN_NAME=${RUN_NAME}" "${COMMAND[@]}")
+fi
+
 tmux new-session -d -s "${SESSION}" -c "${ROOT}" \
-  "bash scripts/autodl_overnight_4090.sh"
+  "$(printf '%q ' "${COMMAND[@]}")"
 
 echo "Started tmux session: ${SESSION}"
 echo "Attach:  tmux attach -t ${SESSION}"
