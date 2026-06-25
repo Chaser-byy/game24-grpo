@@ -29,7 +29,11 @@ def parse_args() -> argparse.Namespace:
         help="Full merged model directory for subsequent GRPO; defaults to OUTPUT_merged",
     )
     parser.add_argument("--limit", type=int, default=0)
-    parser.add_argument("--label-style", choices=("trajectory", "compact"), default="trajectory")
+    parser.add_argument(
+        "--label-style",
+        choices=("trajectory", "compact", "direct_tot"),
+        default="trajectory",
+    )
     parser.add_argument("--solutions-per-example", type=int, default=1)
     parser.add_argument(
         "--include-unsolvable",

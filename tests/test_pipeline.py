@@ -287,6 +287,21 @@ def test_sft_labels_are_verified_r1_responses() -> None:
     assert build_sft_examples([example, unsolvable]) == [label, unsolvable_label]
 
 
+def test_direct_tot_sft_labels_train_final_answers() -> None:
+    example = Game24Example("demo", (1, 3, 4, 6), True)
+    rows = build_sft_examples([example], label_style="direct_tot", solutions_per_example=2)
+    assert rows
+    assert len(rows) <= 2
+
+    parsed = parse_response(rows[0].response)
+    assert parsed.valid_format
+    assert parsed.answer == rows[0].expression
+    assert "State 0" in rows[0].response
+    assert "The final expression" in rows[0].response
+    assert score_response(rows[0].response, example.numbers).correctness == 1.0
+    assert verify_expression(rows[0].expression, example.numbers)
+
+
 def test_manifest_json_shape_is_serializable() -> None:
     example = Game24Example("demo", (1, 3, 4, 6), True)
     assert json.dumps({"fingerprint": dataset_fingerprint([example])})

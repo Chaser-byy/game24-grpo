@@ -124,6 +124,32 @@ def trajectory_to_response(trajectory: SolutionTrajectory) -> str:
     return f"<think>{think}</think>\n<answer>{trajectory.expression}</answer>"
 
 
+def trajectory_to_direct_tot_response(trajectory: SolutionTrajectory) -> str:
+    """Render a direct-answer response that teaches internal stateful ToT reasoning."""
+
+    lines = [
+        (
+            "I will keep the remaining expressions as a state and combine two "
+            "entries at a time until one expression reaches the target."
+        )
+    ]
+    for index, step in enumerate(trajectory.steps, 1):
+        before = ", ".join(step.before)
+        after = ", ".join(step.after)
+        lines.append(f"State {index - 1}: [{before}].")
+        lines.append(
+            f"Step {index}: combine {step.left} {step.operation} {step.right} "
+            f"to get {step.expression} = {step.value}."
+        )
+        lines.append(f"New state: [{after}].")
+    lines.append(
+        f"The final expression is {trajectory.expression}, which evaluates to "
+        f"{trajectory.target} and uses each original number exactly once."
+    )
+    think = "\n".join(lines)
+    return f"<think>{think}</think>\n<answer>{trajectory.expression}</answer>"
+
+
 def _expand_state(
     state: tuple[_StateItem, ...],
 ) -> list[tuple[tuple[_StateItem, ...], TrajectoryStep]]:

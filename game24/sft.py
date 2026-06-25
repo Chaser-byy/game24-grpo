@@ -6,7 +6,11 @@ from game24.data import Game24Example
 from game24.parser import parse_response
 from game24.rewards import UNSOLVABLE_ANSWER
 from game24.solver import find_solution
-from game24.trajectory import enumerate_trajectories, trajectory_to_response
+from game24.trajectory import (
+    enumerate_trajectories,
+    trajectory_to_direct_tot_response,
+    trajectory_to_response,
+)
 from game24.verifier import check_expression
 
 
@@ -78,6 +82,8 @@ def solver_label(
         response = trajectory_to_response(trajectory)
     elif label_style == "compact":
         response = build_sft_response(expression, example.target)
+    elif label_style == "direct_tot":
+        response = trajectory_to_direct_tot_response(trajectory)
     else:
         raise ValueError(f"unknown SFT label style: {label_style}")
     parsed = parse_response(response)
@@ -117,11 +123,14 @@ def build_sft_examples(
             max_solutions=solutions_per_example,
         )
         for trajectory in trajectories:
-            response = (
-                trajectory_to_response(trajectory)
-                if label_style == "trajectory"
-                else build_sft_response(trajectory.expression, example.target)
-            )
+            if label_style == "trajectory":
+                response = trajectory_to_response(trajectory)
+            elif label_style == "compact":
+                response = build_sft_response(trajectory.expression, example.target)
+            elif label_style == "direct_tot":
+                response = trajectory_to_direct_tot_response(trajectory)
+            else:
+                raise ValueError(f"unknown SFT label style: {label_style}")
             parsed = parse_response(response)
             if not parsed.valid_format:
                 raise ValueError(f"invalid SFT response for {example.example_id}: {parsed.reason}")
@@ -139,5 +148,5 @@ def build_sft_examples(
 
 
 def _validate_label_style(label_style: str) -> None:
-    if label_style not in {"trajectory", "compact"}:
+    if label_style not in {"trajectory", "compact", "direct_tot"}:
         raise ValueError(f"unknown SFT label style: {label_style}")
